@@ -641,11 +641,13 @@
 
         // Actions
         async function activateVoucher() {
+            const customMessage = document.getElementById('activationMessage')?.value.trim();
+            
             const activation = {
                 id: Date.now(),
                 from: 'agnieszka',
                 timestamp: new Date().toISOString(),
-                message: messages[Math.floor(Math.random() * messages.length)],
+                message: customMessage || "💕 Chadoudou a activé son bon d'amour",
                 status: 'pending'
             };
 
@@ -812,6 +814,11 @@
                         <div style="color: #fff5f7; font-size: 14px; margin-top: 15px; font-style: italic;">
                             De ton Chou qui t'aime ❤️
                         </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">💬 Dis quelque chose à ton Chou (optionnel) :</label>
+                        <textarea id="activationMessage" class="journal-textarea" style="min-height: 80px;" placeholder="Ex: J'ai besoin de câlins 🥺 ou Viens vite ! ou laisse vide pour juste activer le bon"></textarea>
                     </div>
 
                     <button class="big-btn ${pending > 0 ? '' : 'pulse'}" id="btn-activate">
