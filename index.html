@@ -488,8 +488,6 @@
         const state = {
             currentMode: null,
             currentTab: 'voucher',
-            selectedPhoto: null,
-            responsePhotos: {}, // Pour stocker les photos de réponse par activation ID
             data: {
                 activations: [],
                 journal: [],
@@ -615,6 +613,23 @@
             }
         }
 
+        async function resetData() {
+            if (confirm('⚠️ Es-tu sûr de vouloir supprimer TOUTES les données ?\n\nCela effacera :\n- Toutes les activations\n- Tout le journal\n- Toutes les capsules\n- Toutes les statistiques\n\nCette action est IRRÉVERSIBLE !')) {
+                // Réinitialiser les données
+                state.data = {
+                    activations: [],
+                    journal: [],
+                    capsules: [],
+                    stats: { totalActivations: 0, totalResponses: 0 }
+                };
+                
+                await saveData();
+                
+                alert('✅ Toutes les données ont été réinitialisées !');
+                render();
+            }
+        }
+
         function updateConnectionStatus(online) {
             const statusEl = document.getElementById('connectionStatus');
             if (online) {
@@ -631,7 +646,6 @@
                 from: 'agnieszka',
                 timestamp: new Date().toISOString(),
                 message: messages[Math.floor(Math.random() * messages.length)],
-                photo: state.selectedPhoto,
                 status: 'pending'
             };
 
@@ -639,7 +653,6 @@
             state.data.stats.totalActivations++;
             await saveData();
 
-            state.selectedPhoto = null;
             createHeartsRain();
             render();
         }
@@ -649,12 +662,8 @@
             if (activation) {
                 activation.status = 'received';
                 activation.response = response;
-                activation.responsePhoto = state.responsePhotos[activationId] || null;
                 activation.responseTime = new Date().toISOString();
                 state.data.stats.totalResponses++;
-                
-                // Nettoyer la photo de réponse après utilisation
-                delete state.responsePhotos[activationId];
                 
                 await saveData();
                 createEmojiBurst('✨', window.innerWidth / 2, window.innerHeight / 2);
@@ -805,16 +814,6 @@
                         </div>
                     </div>
 
-                    <div class="photo-upload">
-                        <div class="file-input-wrapper">
-                            <label class="file-input-btn" for="photoInput">
-                                📸 Ajouter une photo (optionnel)
-                            </label>
-                            <input type="file" id="photoInput" accept="image/*">
-                        </div>
-                        ${state.selectedPhoto ? `<img src="${state.selectedPhoto}" class="photo-preview">` : ''}
-                    </div>
-
                     <button class="big-btn ${pending > 0 ? '' : 'pulse'}" id="btn-activate">
                         ✨ Activer le Bon ✨
                     </button>
@@ -833,18 +832,7 @@
                                 <div class="notification-text">💕 Chadoudou a activé son bon !</div>
                                 <div style="background: white; border-radius: 12px; padding: 15px; margin-bottom: 15px;">
                                     <div style="color: #d63384; font-style: italic;">"${activation.message}"</div>
-                                    ${activation.photo ? `<img src="${activation.photo}" class="attached-photo">` : ''}
                                     <div style="color: #999; font-size: 12px; margin-top: 8px;">${formatTime(activation.timestamp)}</div>
-                                </div>
-                                
-                                <div class="photo-upload" style="margin-bottom: 15px;">
-                                    <div class="file-input-wrapper">
-                                        <label class="file-input-btn" for="responsePhoto-${activation.id}" style="font-size: 14px; padding: 10px;">
-                                            📸 Ajouter une photo à ta réponse (optionnel)
-                                        </label>
-                                        <input type="file" id="responsePhoto-${activation.id}" accept="image/*" data-activation-id="${activation.id}">
-                                    </div>
-                                    <div id="responsePhotoPreview-${activation.id}"></div>
                                 </div>
                                 
                                 <button class="response-btn primary" data-response="arrive1" data-id="${activation.id}">💝 Ton Chou arrive ma belle !</button>
@@ -865,10 +853,17 @@
                     });
                 } else {
                     html += `
-                        <div style="text-align: center; padding: 40px 20px; background: rgba(255, 255, 255, 0.5); border-radius: 20px;">
+                        <div style="text-align: center; padding: 40px 20px; background: rgba(255, 255, 255, 0.5); border-radius: 20px; margin-bottom: 20px;">
                             <div style="font-size: 48px; margin-bottom: 15px;">💤</div>
                             <div style="color: #e685b5; font-size: 16px;">Aucune demande en attente</div>
                         </div>
+                        
+                        <button class="big-btn" id="btn-reset" style="background: linear-gradient(135deg, #dc3545 0%, #ff6b6b 100%); margin-top: 20px;">
+                            🗑️ Réinitialiser toutes les données
+                        </button>
+                        <p style="text-align: center; color: #999; font-size: 12px; margin-top: 10px;">
+                            ⚠️ Attention : cette action supprime tout l'historique
+                        </p>
                     `;
                 }
 
@@ -903,9 +898,6 @@
                         <div style="color: #28a745; font-weight: bold; font-size: 14px; margin-bottom: 5px;">
                             ${responseText}
                         </div>
-                        ${activation.responsePhoto ? `
-                            <img src="${activation.responsePhoto}" style="width: 100%; max-height: 150px; object-fit: cover; border-radius: 8px; margin-top: 8px;">
-                        ` : ''}
                         <div style="color: #999; font-size: 11px; margin-top: 5px;">
                             ${formatTime(activation.responseTime || activation.timestamp)}
                         </div>
@@ -1067,6 +1059,8 @@
                     addJournalEntry();
                 } else if (target.id === 'btn-capsule') {
                     addCapsule();
+                } else if (target.id === 'btn-reset') {
+                    resetData();
                 }
                 
                 // Response buttons
@@ -1076,15 +1070,6 @@
                     if (id && response) {
                         respondToActivation(id, response);
                     }
-                }
-            });
-            
-            // Photo upload - on utilise change event
-            content.addEventListener('change', (e) => {
-                if (e.target.id === 'photoInput') {
-                    handlePhotoUpload(e);
-                } else if (e.target.id && e.target.id.startsWith('responsePhoto-')) {
-                    handleResponsePhotoUpload(e);
                 }
             });
         });
