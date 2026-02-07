@@ -5,20 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>💕 Chadoudou et Chou 💕</title>
     
-    <!-- PWA Meta tags pour l'icône sur l'écran d'accueil -->
+    <!-- PWA Meta tags -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Chadoudou et Chou">
     <meta name="theme-color" content="#d63384">
     
-    <!-- Icône pour iOS -->
-    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><defs><linearGradient id='grad' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' style='stop-color:%23ff9ac1'/><stop offset='100%' style='stop-color:%23ffb3d9'/></linearGradient></defs><rect width='200' height='200' fill='url(%23grad)' rx='40'/><text x='100' y='120' font-size='100' text-anchor='middle' fill='white'>💕</text></svg>">
-    
-    <!-- Icône pour Android -->
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><defs><linearGradient id='grad' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' style='stop-color:%23ff9ac1'/><stop offset='100%' style='stop-color:%23ffb3d9'/></linearGradient></defs><rect width='200' height='200' fill='url(%23grad)' rx='40'/><text x='100' y='120' font-size='100' text-anchor='middle' fill='white'>💕</text></svg>">
-    
-    <!-- Manifest pour Android -->
-    <link rel="manifest" href="data:application/json,{%22name%22:%22Chadoudou%20et%20Chou%22,%22short_name%22:%22Love%20App%22,%22icons%22:[{%22src%22:%22data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><defs><linearGradient id='grad' x1='0%' y1='0%' x2='100%' y2='100%'><stop offset='0%' style='stop-color:%23ff9ac1'/><stop offset='100%' style='stop-color:%23ffb3d9'/></linearGradient></defs><rect width='200' height='200' fill='url(%23grad)' rx='40'/><text x='100' y='120' font-size='100' text-anchor='middle' fill='white'>💕</text></svg>%22,%22sizes%22:%22512x512%22,%22type%22:%22image/svg+xml%22}],%22theme_color%22:%22%23d63384%22,%22background_color%22:%22%23ffeef8%22,%22display%22:%22standalone%22}">
+    <!-- Icônes -->
+    <link rel="icon" type="image/svg+xml" href="icon.svg">
+    <link rel="apple-touch-icon" href="icon.svg">
     <style>
         * {
             margin: 0;
@@ -635,4 +630,432 @@
             await saveData();
 
             state.selectedPhoto = null;
-     
+            createHeartsRain();
+            render();
+        }
+
+        async function respondToActivation(activationId, response) {
+            const activation = state.data.activations.find(a => a.id === activationId);
+            if (activation) {
+                activation.status = 'received';
+                activation.response = response;
+                activation.responseTime = new Date().toISOString();
+                state.data.stats.totalResponses++;
+                await saveData();
+                createEmojiBurst('✨', window.innerWidth / 2, window.innerHeight / 2);
+                render();
+            }
+        }
+
+        async function addJournalEntry() {
+            const textarea = document.getElementById('journalText');
+            const content = textarea?.value.trim();
+            
+            if (content) {
+                const entry = {
+                    id: Date.now(),
+                    author: state.currentMode === 'agnieszka' ? 'Chadoudou' : 'Chou',
+                    content: content,
+                    timestamp: new Date().toISOString()
+                };
+                state.data.journal.unshift(entry);
+                await saveData();
+                textarea.value = '';
+                render();
+            }
+        }
+
+        async function addCapsule() {
+            const message = document.getElementById('capsuleMessage')?.value.trim();
+            const days = parseInt(document.getElementById('capsuleDays')?.value || '7');
+            
+            if (message && days > 0) {
+                const unlockDate = new Date();
+                unlockDate.setDate(unlockDate.getDate() + days);
+
+                const capsule = {
+                    id: Date.now(),
+                    from: state.currentMode === 'agnieszka' ? 'Chadoudou' : 'Chou',
+                    to: state.currentMode === 'agnieszka' ? 'Chou' : 'Chadoudou',
+                    message: message,
+                    createdAt: new Date().toISOString(),
+                    unlockAt: unlockDate.toISOString(),
+                    opened: false
+                };
+
+                state.data.capsules.push(capsule);
+                await saveData();
+                
+                document.getElementById('capsuleMessage').value = '';
+                document.getElementById('capsuleDays').value = '7';
+                render();
+            }
+        }
+
+        function handlePhotoUpload(event) {
+            const file = event.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    state.selectedPhoto = e.target.result;
+                    render();
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        // Render
+        function render() {
+            const content = document.getElementById('content');
+            
+            if (!state.currentMode) {
+                content.innerHTML = `
+                    <p class="subtitle" style="text-align: center; padding: 20px;">
+                        Choisis ton profil pour commencer 💕
+                    </p>
+                `;
+                return;
+            }
+
+            let html = `
+                <div class="nav-tabs">
+                    <button class="nav-tab ${state.currentTab === 'voucher' ? 'active' : ''}" id="tab-voucher">
+                        💝 Bon
+                    </button>
+                    <button class="nav-tab ${state.currentTab === 'journal' ? 'active' : ''}" id="tab-journal">
+                        📔 Journal
+                    </button>
+                    <button class="nav-tab ${state.currentTab === 'capsules' ? 'active' : ''}" id="tab-capsules">
+                        ⏳ Capsules
+                    </button>
+                    <button class="nav-tab ${state.currentTab === 'memories' ? 'active' : ''}" id="tab-memories">
+                        💖 Nous
+                    </button>
+                </div>
+            `;
+
+            if (state.currentTab === 'voucher') {
+                html += renderVoucherTab();
+            } else if (state.currentTab === 'journal') {
+                html += renderJournalTab();
+            } else if (state.currentTab === 'capsules') {
+                html += renderCapsulesTab();
+            } else if (state.currentTab === 'memories') {
+                html += renderMemoriesTab();
+            }
+
+            content.innerHTML = html;
+        }
+
+        function renderVoucherTab() {
+            if (state.currentMode === 'agnieszka') {
+                const pending = (state.data.activations || []).filter(a => a.status === 'pending').length;
+                
+                return `
+                    <p class="subtitle">Pour ma Chadoudou adorée</p>
+
+                    <div class="voucher-card">
+                        <div class="voucher-title">🌹 Bon Valable à Vie 🌹</div>
+                        <div class="voucher-text">
+                            Ce bon te donne droit à un amour<br>
+                            <strong>ILLIMITÉ et INCONDITIONNEL</strong><br>
+                            valable 24h/24, 7j/7
+                        </div>
+                        <div class="voucher-text">
+                            💕 Câlins infinis<br>
+                            💕 Bisous sans limite<br>
+                            💕 Tendresse éternelle
+                        </div>
+                        <div style="color: #fff5f7; font-size: 14px; margin-top: 15px; font-style: italic;">
+                            De ton Chou qui t'aime ❤️
+                        </div>
+                    </div>
+
+                    <div class="photo-upload">
+                        <div class="file-input-wrapper">
+                            <label class="file-input-btn" for="photoInput">
+                                📸 Ajouter une photo (optionnel)
+                            </label>
+                            <input type="file" id="photoInput" accept="image/*">
+                        </div>
+                        ${state.selectedPhoto ? `<img src="${state.selectedPhoto}" class="photo-preview">` : ''}
+                    </div>
+
+                    <button class="big-btn ${pending > 0 ? '' : 'pulse'}" id="btn-activate">
+                        ✨ Activer le Bon ✨
+                    </button>
+                `;
+            } else {
+                const pending = (state.data.activations || []).filter(a => a.status === 'pending');
+                
+                let html = `<p class="subtitle">Espace de Chou 🤴</p>`;
+
+                if (pending.length > 0) {
+                    pending.forEach(activation => {
+                        html += `
+                            <div class="pending-notification">
+                                <div class="notification-text">💕 Chadoudou a activé son bon !</div>
+                                <div style="background: white; border-radius: 12px; padding: 15px; margin-bottom: 15px;">
+                                    <div style="color: #d63384; font-style: italic;">"${activation.message}"</div>
+                                    ${activation.photo ? `<img src="${activation.photo}" class="attached-photo">` : ''}
+                                    <div style="color: #999; font-size: 12px; margin-top: 8px;">${formatTime(activation.timestamp)}</div>
+                                </div>
+                                <button class="response-btn primary" data-response="arrive1" data-id="${activation.id}">💝 Ton Chou arrive ma belle !</button>
+                                <button class="response-btn primary" data-response="arrive2" data-id="${activation.id}">🏃 J'arrive en courant ma Chadoudou !</button>
+                                <button class="response-btn primary" data-response="arrive3" data-id="${activation.id}">💕 Compte sur moi mon cœur !</button>
+                                <button class="response-btn primary" data-response="sweet1" data-id="${activation.id}">🌹 Message reçu ma chérie !</button>
+                                <button class="response-btn primary" data-response="sweet2" data-id="${activation.id}">✨ Je suis là pour toi !</button>
+                                <button class="response-btn primary" data-response="sweet3" data-id="${activation.id}">🥰 J'accours ma belle !</button>
+                                <button class="response-btn primary" data-response="sweet4" data-id="${activation.id}">💞 Demande acceptée avec amour !</button>
+                                <button class="response-btn primary" data-response="fun1" data-id="${activation.id}">🦸 Super Chou à la rescousse !</button>
+                                <button class="response-btn primary" data-response="fun2" data-id="${activation.id}">🎯 Mission câlin acceptée !</button>
+                                <button class="response-btn secondary" data-response="wait1" data-id="${activation.id}">⏰ 5 minutes mon amour !</button>
+                                <button class="response-btn secondary" data-response="wait2" data-id="${activation.id}">🕐 Je finis un truc et j'arrive !</button>
+                                <button class="response-btn secondary" data-response="wait3" data-id="${activation.id}">🔜 Presque là ma Chadoudou !</button>
+                                <button class="response-btn secondary" data-response="wait4" data-id="${activation.id}">📍 En chemin vers toi !</button>
+                            </div>
+                        `;
+                    });
+                } else {
+                    html += `
+                        <div style="text-align: center; padding: 40px 20px; background: rgba(255, 255, 255, 0.5); border-radius: 20px;">
+                            <div style="font-size: 48px; margin-bottom: 15px;">💤</div>
+                            <div style="color: #e685b5; font-size: 16px;">Aucune demande en attente</div>
+                        </div>
+                    `;
+                }
+
+                return html;
+            }
+        }
+
+        function renderJournalTab() {
+            let html = `
+                <p class="subtitle">📔 Notre journal intime partagé</p>
+                
+                <div class="journal-form">
+                    <textarea id="journalText" class="journal-textarea" placeholder="Écris un petit mot doux à ton amour..."></textarea>
+                    <button class="big-btn" id="btn-journal">✍️ Écrire dans le journal</button>
+                </div>
+            `;
+
+            if (state.data.journal && state.data.journal.length > 0) {
+                html += `<div style="margin-top: 30px;">`;
+                state.data.journal.forEach(entry => {
+                    html += `
+                        <div class="journal-entry">
+                            <div class="journal-header">
+                                <span class="journal-author">${entry.author}</span>
+                                <span class="journal-date">${formatTime(entry.timestamp)}</span>
+                            </div>
+                            <div class="journal-content">${entry.content}</div>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+            } else {
+                html += `<div style="text-align: center; padding: 30px; color: #e685b5; margin-top: 20px;">Le journal est encore vide.<br>Sois le premier à écrire un mot doux ! 💕</div>`;
+            }
+
+            return html;
+        }
+
+        function renderCapsulesTab() {
+            const now = new Date();
+            const received = (state.data.capsules || []).filter(c => c.to === (state.currentMode === 'agnieszka' ? 'Chadoudou' : 'Chou'));
+
+            let html = `
+                <p class="subtitle">⏳ Capsules temporelles</p>
+                
+                <div class="form-group">
+                    <label class="form-label">Message pour ton amour :</label>
+                    <textarea id="capsuleMessage" class="journal-textarea" placeholder="Un message qui sera débloqué dans le futur..."></textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Débloquer dans combien de jours ?</label>
+                    <input type="number" id="capsuleDays" class="form-input" value="7" min="1" max="365">
+                </div>
+                
+                <button class="big-btn" id="btn-capsule">🎁 Créer la capsule</button>
+
+                <div style="margin-top: 30px;">
+                    <div style="color: #d63384; font-size: 18px; font-weight: bold; margin-bottom: 15px; text-align: center;">📬 Capsules reçues</div>
+            `;
+
+            if (received.length > 0) {
+                received.forEach(capsule => {
+                    const unlockDate = new Date(capsule.unlockAt);
+                    const isUnlocked = now >= unlockDate;
+                    
+                    html += `
+                        <div class="capsule-card ${isUnlocked ? '' : 'capsule-locked'}">
+                            <div class="capsule-header">
+                                <span style="font-weight: bold;">De ${capsule.from}</span>
+                                <span style="font-size: 12px;">${isUnlocked ? '🔓 Débloqué' : '🔒 ' + formatDate(capsule.unlockAt)}</span>
+                            </div>
+                            ${isUnlocked ? `<div class="capsule-message">${capsule.message}</div>` : `<div style="text-align: center; padding: 10px;">Cette capsule sera débloquée le ${formatDate(capsule.unlockAt)} 🎁</div>`}
+                        </div>
+                    `;
+                });
+            } else {
+                html += `<div style="text-align: center; padding: 20px; color: #e685b5;">Aucune capsule reçue</div>`;
+            }
+
+            html += `</div>`;
+            return html;
+        }
+
+        function renderMemoriesTab() {
+            const totalMoments = (state.data.stats?.totalActivations || 0) + ((state.data.journal || []).length);
+            const activations = state.data.activations || [];
+            const daysActive = activations.length > 0 ? 
+                Math.ceil((new Date() - new Date(activations[activations.length - 1].timestamp)) / (1000 * 60 * 60 * 24)) : 0;
+            
+            return `
+                <p class="subtitle">💖 Notre histoire d'amour</p>
+
+                <div style="background: linear-gradient(135deg, #ff9ac1 0%, #ffb3d9 100%); border-radius: 20px; padding: 25px; margin-bottom: 20px; color: white; text-align: center;">
+                    <div style="font-size: 48px; margin-bottom: 10px;">💕</div>
+                    <div style="font-size: 24px; font-weight: bold; margin-bottom: 5px;">
+                        ${totalMoments} moments d'amour partagés
+                    </div>
+                    <div style="font-size: 14px; opacity: 0.9;">
+                        Depuis ${daysActive > 0 ? daysActive + ' jour' + (daysActive > 1 ? 's' : '') : 'aujourd\'hui'} ensemble sur cette app ✨
+                    </div>
+                </div>
+
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="stat-number">💝</div>
+                        <div class="stat-label">${state.data.stats?.totalActivations || 0} fois que Chadoudou a réclamé son Chou</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">❤️</div>
+                        <div class="stat-label">${state.data.stats?.totalResponses || 0} réponses pleines d'amour</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">📝</div>
+                        <div class="stat-label">${(state.data.journal || []).length} mots doux échangés</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number">🎁</div>
+                        <div class="stat-label">${(state.data.capsules || []).length} surprise${((state.data.capsules || []).length > 1) ? 's' : ''} pour le futur</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function attachEventListeners() {
+            // Plus besoin d'attacher individuellement - on utilise la délégation d'événements
+        }
+
+        // Event delegation global sur le content
+        document.addEventListener('DOMContentLoaded', () => {
+            const content = document.getElementById('content');
+            
+            content.addEventListener('click', (e) => {
+                const target = e.target;
+                
+                // Tabs
+                if (target.id === 'tab-voucher') {
+                    state.currentTab = 'voucher';
+                    render();
+                } else if (target.id === 'tab-journal') {
+                    state.currentTab = 'journal';
+                    render();
+                } else if (target.id === 'tab-capsules') {
+                    state.currentTab = 'capsules';
+                    render();
+                } else if (target.id === 'tab-memories') {
+                    state.currentTab = 'memories';
+                    render();
+                }
+                
+                // Buttons
+                else if (target.id === 'btn-activate') {
+                    activateVoucher();
+                } else if (target.id === 'btn-journal') {
+                    addJournalEntry();
+                } else if (target.id === 'btn-capsule') {
+                    addCapsule();
+                }
+                
+                // Response buttons
+                else if (target.classList.contains('response-btn')) {
+                    const id = parseInt(target.getAttribute('data-id'));
+                    const response = target.getAttribute('data-response');
+                    if (id && response) {
+                        respondToActivation(id, response);
+                    }
+                }
+            });
+            
+            // Photo upload - on utilise change event
+            content.addEventListener('change', (e) => {
+                if (e.target.id === 'photoInput') {
+                    handlePhotoUpload(e);
+                }
+            });
+        });
+
+        // Init
+        let pollInterval;
+
+        document.getElementById('agnieszkaBtn').addEventListener('click', () => {
+            state.currentMode = 'agnieszka';
+            localStorage.setItem('loveAppMode', 'agnieszka');
+            document.getElementById('agnieszkaBtn').classList.add('active');
+            document.getElementById('stephanBtn').classList.remove('active');
+            render();
+            if (!pollInterval) pollInterval = setInterval(loadData, POLL_INTERVAL);
+        });
+
+        document.getElementById('stephanBtn').addEventListener('click', () => {
+            state.currentMode = 'stephan';
+            localStorage.setItem('loveAppMode', 'stephan');
+            document.getElementById('stephanBtn').classList.add('active');
+            document.getElementById('agnieszkaBtn').classList.remove('active');
+            render();
+            if (!pollInterval) pollInterval = setInterval(loadData, POLL_INTERVAL);
+        });
+
+        (async function() {
+            await loadData();
+            
+            const savedMode = localStorage.getItem('loveAppMode');
+            if (savedMode) {
+                document.getElementById(savedMode === 'agnieszka' ? 'agnieszkaBtn' : 'stephanBtn').click();
+            }
+            
+            if ('Notification' in window && Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+
+            // Notification pour nouvelles activations
+            let lastActivationId = null;
+            setInterval(() => {
+                if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
+                    const latestPending = state.data.activations.find(a => a.status === 'pending');
+                    if (latestPending && latestPending.id !== lastActivationId) {
+                        lastActivationId = latestPending.id;
+                        
+                        if ('vibrate' in navigator) {
+                            navigator.vibrate([200, 100, 200]);
+                        }
+                        
+                        if ('Notification' in window && Notification.permission === 'granted') {
+                            new Notification('💕 Chadoudou t\'appelle !', {
+                                body: 'Elle a activé son bon d\'amour',
+                                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">💕</text></svg>'
+                            });
+                        }
+                        
+                        render(); // Force refresh pour afficher la notification
+                    }
+                }
+            }, 2000);
+        })();
+    </script>
+</body>
+</html>
