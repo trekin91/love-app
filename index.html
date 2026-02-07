@@ -489,6 +489,7 @@
             currentMode: null,
             currentTab: 'voucher',
             selectedPhoto: null,
+            responsePhotos: {}, // Pour stocker les photos de réponse par activation ID
             data: {
                 activations: [],
                 journal: [],
@@ -648,8 +649,13 @@
             if (activation) {
                 activation.status = 'received';
                 activation.response = response;
+                activation.responsePhoto = state.responsePhotos[activationId] || null;
                 activation.responseTime = new Date().toISOString();
                 state.data.stats.totalResponses++;
+                
+                // Nettoyer la photo de réponse après utilisation
+                delete state.responsePhotos[activationId];
+                
                 await saveData();
                 createEmojiBurst('✨', window.innerWidth / 2, window.innerHeight / 2);
                 render();
@@ -708,6 +714,25 @@
                 reader.onload = function(e) {
                     state.selectedPhoto = e.target.result;
                     render();
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function handleResponsePhotoUpload(event) {
+            const file = event.target.files[0];
+            const activationId = parseInt(event.target.getAttribute('data-activation-id'));
+            
+            if (file && file.type.startsWith('image/')) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    state.responsePhotos[activationId] = e.target.result;
+                    
+                    // Afficher l'aperçu
+                    const previewDiv = document.getElementById(`responsePhotoPreview-${activationId}`);
+                    if (previewDiv) {
+                        previewDiv.innerHTML = `<img src="${e.target.result}" class="photo-preview">`;
+                    }
                 };
                 reader.readAsDataURL(file);
             }
@@ -793,6 +818,8 @@
                     <button class="big-btn ${pending > 0 ? '' : 'pulse'}" id="btn-activate">
                         ✨ Activer le Bon ✨
                     </button>
+
+                    ${renderRecentResponses()}
                 `;
             } else {
                 const pending = (state.data.activations || []).filter(a => a.status === 'pending');
@@ -809,6 +836,17 @@
                                     ${activation.photo ? `<img src="${activation.photo}" class="attached-photo">` : ''}
                                     <div style="color: #999; font-size: 12px; margin-top: 8px;">${formatTime(activation.timestamp)}</div>
                                 </div>
+                                
+                                <div class="photo-upload" style="margin-bottom: 15px;">
+                                    <div class="file-input-wrapper">
+                                        <label class="file-input-btn" for="responsePhoto-${activation.id}" style="font-size: 14px; padding: 10px;">
+                                            📸 Ajouter une photo à ta réponse (optionnel)
+                                        </label>
+                                        <input type="file" id="responsePhoto-${activation.id}" accept="image/*" data-activation-id="${activation.id}">
+                                    </div>
+                                    <div id="responsePhotoPreview-${activation.id}"></div>
+                                </div>
+                                
                                 <button class="response-btn primary" data-response="arrive1" data-id="${activation.id}">💝 Ton Chou arrive ma belle !</button>
                                 <button class="response-btn primary" data-response="arrive2" data-id="${activation.id}">🏃 J'arrive en courant ma Chadoudou !</button>
                                 <button class="response-btn primary" data-response="arrive3" data-id="${activation.id}">💕 Compte sur moi mon cœur !</button>
@@ -836,6 +874,47 @@
 
                 return html;
             }
+        }
+
+        function renderRecentResponses() {
+            const received = (state.data.activations || []).filter(a => a.status === 'received').slice(0, 3);
+            
+            if (received.length === 0) return '';
+            
+            let html = '<div style="margin-top: 20px;"><div style="color: #d63384; font-size: 16px; font-weight: bold; margin-bottom: 12px; text-align: center;">💬 Dernières réponses de Chou</div>';
+            
+            received.forEach(activation => {
+                const responseText = activation.response === 'arrive1' ? '💝 Ton Chou arrive' :
+                                   activation.response === 'arrive2' ? '🏃 J\'arrive en courant' :
+                                   activation.response === 'arrive3' ? '💕 Compte sur moi' :
+                                   activation.response === 'sweet1' ? '🌹 Message reçu' :
+                                   activation.response === 'sweet2' ? '✨ Je suis là' :
+                                   activation.response === 'sweet3' ? '🥰 J\'accours' :
+                                   activation.response === 'sweet4' ? '💞 Demande acceptée' :
+                                   activation.response === 'fun1' ? '🦸 Super Chou arrive' :
+                                   activation.response === 'fun2' ? '🎯 Mission câlin' :
+                                   activation.response === 'wait1' ? '⏰ 5 minutes' :
+                                   activation.response === 'wait2' ? '🕐 Je finis un truc' :
+                                   activation.response === 'wait3' ? '🔜 Presque là' :
+                                   activation.response === 'wait4' ? '📍 En chemin' : '';
+                
+                html += `
+                    <div style="background: #f0f9ff; border-radius: 12px; padding: 12px; margin-bottom: 10px; border-left: 4px solid #28a745;">
+                        <div style="color: #28a745; font-weight: bold; font-size: 14px; margin-bottom: 5px;">
+                            ${responseText}
+                        </div>
+                        ${activation.responsePhoto ? `
+                            <img src="${activation.responsePhoto}" style="width: 100%; max-height: 150px; object-fit: cover; border-radius: 8px; margin-top: 8px;">
+                        ` : ''}
+                        <div style="color: #999; font-size: 11px; margin-top: 5px;">
+                            ${formatTime(activation.responseTime || activation.timestamp)}
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            return html;
         }
 
         function renderJournalTab() {
@@ -1004,6 +1083,8 @@
             content.addEventListener('change', (e) => {
                 if (e.target.id === 'photoInput') {
                     handlePhotoUpload(e);
+                } else if (e.target.id && e.target.id.startsWith('responsePhoto-')) {
+                    handleResponsePhotoUpload(e);
                 }
             });
         });
