@@ -1898,11 +1898,21 @@
         });
 
         (async function() {
-            await loadData();
-            
+            // IMPORTANT: Charger le mode AVANT loadData pour que l'historique se charge
             const savedMode = localStorage.getItem('loveAppMode');
             if (savedMode) {
-                document.getElementById(savedMode === 'agnieszka' ? 'agnieszkaBtn' : 'stephanBtn').click();
+                state.currentMode = savedMode;
+                document.getElementById(savedMode === 'agnieszka' ? 'agnieszkaBtn' : 'stephanBtn').classList.add('active');
+                console.log('Mode restauré:', savedMode);
+            }
+            
+            await loadData();
+            render();
+            
+            // Démarrer le polling (seulement si pas déjà démarré)
+            if (!pollInterval) {
+                pollInterval = setInterval(loadData, POLL_INTERVAL);
+                console.log('Polling démarré');
             }
             
             // FORCER la demande de notification au chargement
