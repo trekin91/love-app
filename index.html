@@ -1772,12 +1772,13 @@
             }
 
             // Notification pour nouvelles activations (CHOU)
-            let lastActivationId = null;
+            let lastActivationId = localStorage.getItem('lastActivationId') || null;
             setInterval(async () => {
                 if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
                     const latestPending = state.data.activations.find(a => a.status === 'pending');
                     if (latestPending && latestPending.id !== lastActivationId) {
                         lastActivationId = latestPending.id;
+                        localStorage.setItem('lastActivationId', lastActivationId);
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200]);
@@ -1803,10 +1804,10 @@
             }, 2000);
 
             // Notification pour nouvelles réponses (CHADOUDOU)
-            let lastResponseId = null;
-            let notifiedCapsules = new Set(); // Pour ne pas notifier plusieurs fois la même capsule
-            let lastJournalId = null; // Pour détecter nouvelles entrées journal
-            let notifiedCompletedChallenges = new Set(); // Pour ne pas notifier plusieurs fois le même défi
+            let lastResponseId = localStorage.getItem('lastResponseId') || null;
+            let notifiedCapsules = new Set(JSON.parse(localStorage.getItem('notifiedCapsules') || '[]'));
+            let lastJournalId = localStorage.getItem('lastJournalId') || null;
+            let notifiedCompletedChallenges = new Set(JSON.parse(localStorage.getItem('notifiedCompletedChallenges') || '[]'));
             
             setInterval(async () => {
                 if (state.currentMode === 'agnieszka' && state.data.activations.length > 0) {
@@ -1814,6 +1815,7 @@
                     const latestResponse = state.data.activations.find(a => a.status === 'received' && a.response);
                     if (latestResponse && latestResponse.id !== lastResponseId) {
                         lastResponseId = latestResponse.id;
+                        localStorage.setItem('lastResponseId', lastResponseId);
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200]);
@@ -1863,6 +1865,7 @@
                     
                     if (isUnlocked && !notifiedCapsules.has(capsule.id)) {
                         notifiedCapsules.add(capsule.id);
+                        localStorage.setItem('notifiedCapsules', JSON.stringify([...notifiedCapsules]));
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([300, 100, 300]);
@@ -1893,6 +1896,7 @@
                     const latestEntry = journalEntries[0]; // Le plus récent
                     if (latestEntry.id !== lastJournalId) {
                         lastJournalId = latestEntry.id;
+                        localStorage.setItem('lastJournalId', lastJournalId);
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200]);
@@ -1924,6 +1928,7 @@
                 for (const challenge of completedChallenges) {
                     if (!notifiedCompletedChallenges.has(challenge.id)) {
                         notifiedCompletedChallenges.add(challenge.id);
+                        localStorage.setItem('notifiedCompletedChallenges', JSON.stringify([...notifiedCompletedChallenges]));
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200, 100, 200]);
