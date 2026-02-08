@@ -496,7 +496,14 @@
                 whyLove: [],
                 dateIdeas: [],
                 challenges: [],
-                stats: { totalActivations: 0, totalResponses: 0 }
+                stats: { totalActivations: 0, totalResponses: 0 },
+                notificationHistory: {
+                    lastActivationId: null,
+                    lastResponseId: null,
+                    lastJournalId: null,
+                    notifiedCapsules: [],
+                    notifiedChallenges: []
+                }
             }
         };
 
@@ -509,7 +516,14 @@
                 whyLove: newData.whyLove || [],
                 dateIdeas: newData.dateIdeas || [],
                 challenges: newData.challenges || [],
-                stats: newData.stats || { totalActivations: 0, totalResponses: 0 }
+                stats: newData.stats || { totalActivations: 0, totalResponses: 0 },
+                notificationHistory: newData.notificationHistory || {
+                    lastActivationId: null,
+                    lastResponseId: null,
+                    lastJournalId: null,
+                    notifiedCapsules: [],
+                    notifiedChallenges: []
+                }
             };
         }
 
@@ -1771,31 +1785,16 @@
                 }
             }
 
-            // Notification pour nouvelles activations (CHOU)
-            let lastActivationId = localStorage.getItem('lastActivationId') || null;
-            let isInitialized = false;
-            
-            // Attendre 5 secondes avant de commencer à monitorer (temps pour que l'utilisateur charge la page)
-            setTimeout(() => {
-                // Initialiser avec les données actuelles si pas encore de tracking
-                if (!lastActivationId && state.data.activations.length > 0) {
-                    const latestPending = state.data.activations.find(a => a.status === 'pending');
-                    if (latestPending) {
-                        lastActivationId = latestPending.id;
-                        localStorage.setItem('lastActivationId', lastActivationId);
-                    }
-                }
-                isInitialized = true;
-            }, 5000);
-            
+            // Notification pour nouvelles activations (CHOU) - Utilise JSONBin au lieu de localStorage
             setInterval(async () => {
-                if (!isInitialized) return; // Ne pas notifier avant l'initialisation
-                
                 if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
                     const latestPending = state.data.activations.find(a => a.status === 'pending');
-                    if (latestPending && latestPending.id !== lastActivationId) {
-                        lastActivationId = latestPending.id;
-                        localStorage.setItem('lastActivationId', lastActivationId);
+                    const lastNotified = state.data.notificationHistory.lastActivationId;
+                    
+                    if (latestPending && latestPending.id !== lastNotified) {
+                        // Mettre à jour l'historique dans JSONBin
+                        state.data.notificationHistory.lastActivationId = latestPending.id;
+                        await saveData();
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200]);
@@ -1815,65 +1814,21 @@
                             }
                         }
                         
-                        render(); // Force refresh pour afficher la notification
+                        render();
                     }
                 }
             }, 2000);
 
-            // Notification pour nouvelles réponses (CHADOUDOU)
-            let lastResponseId = localStorage.getItem('lastResponseId') || null;
-            let notifiedCapsules = new Set(JSON.parse(localStorage.getItem('notifiedCapsules') || '[]'));
-            let lastJournalId = localStorage.getItem('lastJournalId') || null;
-            let notifiedCompletedChallenges = new Set(JSON.parse(localStorage.getItem('notifiedCompletedChallenges') || '[]'));
-            let isInitializedOther = false;
-            
-            // Attendre 5 secondes avant de commencer à monitorer
-            setTimeout(() => {
-                // Initialiser avec les données actuelles si pas encore de tracking (évite re-notification au premier chargement)
-                if (!lastResponseId && state.data.activations.length > 0) {
-                    const latestResponse = state.data.activations.find(a => a.status === 'received' && a.response);
-                    if (latestResponse) {
-                        lastResponseId = latestResponse.id;
-                        localStorage.setItem('lastResponseId', lastResponseId);
-                    }
-                }
-                
-                if (!lastJournalId && state.data.journal && state.data.journal.length > 0) {
-                    lastJournalId = state.data.journal[0].id;
-                    localStorage.setItem('lastJournalId', lastJournalId);
-                }
-                
-                // Initialiser capsules et défis déjà présents
-                const now = new Date();
-                if (notifiedCapsules.size === 0) {
-                    (state.data.capsules || []).forEach(capsule => {
-                        const unlockDate = new Date(capsule.unlockAt);
-                        if (now >= unlockDate) {
-                            notifiedCapsules.add(capsule.id);
-                        }
-                    });
-                    localStorage.setItem('notifiedCapsules', JSON.stringify([...notifiedCapsules]));
-                }
-                
-                if (notifiedCompletedChallenges.size === 0) {
-                    (state.data.challenges || []).filter(c => c.completed).forEach(challenge => {
-                        notifiedCompletedChallenges.add(challenge.id);
-                    });
-                    localStorage.setItem('notifiedCompletedChallenges', JSON.stringify([...notifiedCompletedChallenges]));
-                }
-                
-                isInitializedOther = true;
-            }, 5000);
-            
+            // Notifications pour les autres événements - Utilise JSONBin au lieu de localStorage
             setInterval(async () => {
-                if (!isInitializedOther) return; // Ne pas notifier avant l'initialisation
+                let needsSave = false;
                 
                 if (state.currentMode === 'agnieszka' && state.data.activations.length > 0) {
                     // Chercher la dernière activation avec une réponse
                     const latestResponse = state.data.activations.find(a => a.status === 'received' && a.response);
-                    if (latestResponse && latestResponse.id !== lastResponseId) {
-                        lastResponseId = latestResponse.id;
-                        localStorage.setItem('lastResponseId', lastResponseId);
+                    if (latestResponse && latestResponse.id !== state.data.notificationHistory.lastResponseId) {
+                        state.data.notificationHistory.lastResponseId = latestResponse.id;
+                        needsSave = true;
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200]);
@@ -1921,9 +1876,9 @@
                     const unlockDate = new Date(capsule.unlockAt);
                     const isUnlocked = now >= unlockDate;
                     
-                    if (isUnlocked && !notifiedCapsules.has(capsule.id)) {
-                        notifiedCapsules.add(capsule.id);
-                        localStorage.setItem('notifiedCapsules', JSON.stringify([...notifiedCapsules]));
+                    if (isUnlocked && !state.data.notificationHistory.notifiedCapsules.includes(capsule.id)) {
+                        state.data.notificationHistory.notifiedCapsules.push(capsule.id);
+                        needsSave = true;
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([300, 100, 300]);
@@ -1951,10 +1906,10 @@
                 const journalEntries = (state.data.journal || []).filter(e => e.author === otherName);
                 
                 if (journalEntries.length > 0) {
-                    const latestEntry = journalEntries[0]; // Le plus récent
-                    if (latestEntry.id !== lastJournalId) {
-                        lastJournalId = latestEntry.id;
-                        localStorage.setItem('lastJournalId', lastJournalId);
+                    const latestEntry = journalEntries[0];
+                    if (latestEntry.id !== state.data.notificationHistory.lastJournalId) {
+                        state.data.notificationHistory.lastJournalId = latestEntry.id;
+                        needsSave = true;
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200]);
@@ -1984,9 +1939,9 @@
                 const completedChallenges = (state.data.challenges || []).filter(c => c.completed);
                 
                 for (const challenge of completedChallenges) {
-                    if (!notifiedCompletedChallenges.has(challenge.id)) {
-                        notifiedCompletedChallenges.add(challenge.id);
-                        localStorage.setItem('notifiedCompletedChallenges', JSON.stringify([...notifiedCompletedChallenges]));
+                    if (!state.data.notificationHistory.notifiedChallenges.includes(challenge.id)) {
+                        state.data.notificationHistory.notifiedChallenges.push(challenge.id);
+                        needsSave = true;
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200, 100, 200]);
@@ -2010,6 +1965,11 @@
                             }
                         }
                     }
+                }
+                
+                // Sauvegarder l'historique si changements
+                if (needsSave) {
+                    await saveData();
                 }
             }, 2000);
         })();
