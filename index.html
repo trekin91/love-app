@@ -1771,7 +1771,7 @@
                 }
             }
 
-            // Notification pour nouvelles activations
+            // Notification pour nouvelles activations (CHOU)
             let lastActivationId = null;
             setInterval(async () => {
                 if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
@@ -1798,6 +1798,154 @@
                         }
                         
                         render(); // Force refresh pour afficher la notification
+                    }
+                }
+            }, 2000);
+
+            // Notification pour nouvelles réponses (CHADOUDOU)
+            let lastResponseId = null;
+            let notifiedCapsules = new Set(); // Pour ne pas notifier plusieurs fois la même capsule
+            let lastJournalId = null; // Pour détecter nouvelles entrées journal
+            let notifiedCompletedChallenges = new Set(); // Pour ne pas notifier plusieurs fois le même défi
+            
+            setInterval(async () => {
+                if (state.currentMode === 'agnieszka' && state.data.activations.length > 0) {
+                    // Chercher la dernière activation avec une réponse
+                    const latestResponse = state.data.activations.find(a => a.status === 'received' && a.response);
+                    if (latestResponse && latestResponse.id !== lastResponseId) {
+                        lastResponseId = latestResponse.id;
+                        
+                        if ('vibrate' in navigator) {
+                            navigator.vibrate([200, 100, 200]);
+                        }
+                        
+                        if (swRegistration && Notification.permission === 'granted') {
+                            try {
+                                const responseText = {
+                                    'arrive1': '💝 Ton Chou arrive ma belle !',
+                                    'arrive2': '🏃 J\'arrive en courant ma Chadoudou !',
+                                    'arrive3': '💕 Compte sur moi mon cœur !',
+                                    'sweet1': '🌹 Message reçu ma chérie !',
+                                    'sweet2': '✨ Je suis là pour toi !',
+                                    'sweet3': '🥰 J\'accours ma belle !',
+                                    'sweet4': '💞 Demande acceptée avec amour !',
+                                    'fun1': '🦸 Super Chou à la rescousse !',
+                                    'fun2': '🎯 Mission câlin acceptée !',
+                                    'wait1': '⏰ 5 minutes mon amour !',
+                                    'wait2': '🕐 Je finis un truc et j\'arrive !',
+                                    'wait3': '🔜 Presque là ma Chadoudou !',
+                                    'wait4': '📍 En chemin vers toi !'
+                                }[latestResponse.response] || latestResponse.response;
+
+                                await swRegistration.showNotification('💌 Chou a répondu !', {
+                                    body: responseText,
+                                    icon: '/love-app/icon.svg',
+                                    badge: '/love-app/icon.svg',
+                                    vibrate: [200, 100, 200],
+                                    tag: 'response-' + latestResponse.id
+                                });
+                            } catch (error) {
+                                console.error('Erreur notification réponse:', error);
+                            }
+                        }
+                    }
+                }
+
+                // Vérifier les capsules débloquées (pour les deux)
+                const now = new Date();
+                const myCapsules = (state.data.capsules || []).filter(c => 
+                    c.to === (state.currentMode === 'agnieszka' ? 'Chadoudou' : 'Chou')
+                );
+                
+                for (const capsule of myCapsules) {
+                    const unlockDate = new Date(capsule.unlockAt);
+                    const isUnlocked = now >= unlockDate;
+                    
+                    if (isUnlocked && !notifiedCapsules.has(capsule.id)) {
+                        notifiedCapsules.add(capsule.id);
+                        
+                        if ('vibrate' in navigator) {
+                            navigator.vibrate([300, 100, 300]);
+                        }
+                        
+                        if (swRegistration && Notification.permission === 'granted') {
+                            try {
+                                await swRegistration.showNotification('🎁 Capsule débloquée !', {
+                                    body: `${capsule.from} t'a laissé un message d'amour 💕`,
+                                    icon: '/love-app/icon.svg',
+                                    badge: '/love-app/icon.svg',
+                                    vibrate: [300, 100, 300],
+                                    tag: 'capsule-' + capsule.id
+                                });
+                            } catch (error) {
+                                console.error('Erreur notification capsule:', error);
+                            }
+                        }
+                    }
+                }
+
+                // Vérifier les nouvelles entrées journal (pour les deux)
+                const myName = state.currentMode === 'agnieszka' ? 'Chadoudou' : 'Chou';
+                const otherName = state.currentMode === 'agnieszka' ? 'Chou' : 'Chadoudou';
+                const journalEntries = (state.data.journal || []).filter(e => e.author === otherName);
+                
+                if (journalEntries.length > 0) {
+                    const latestEntry = journalEntries[0]; // Le plus récent
+                    if (latestEntry.id !== lastJournalId) {
+                        lastJournalId = latestEntry.id;
+                        
+                        if ('vibrate' in navigator) {
+                            navigator.vibrate([200, 100, 200]);
+                        }
+                        
+                        if (swRegistration && Notification.permission === 'granted') {
+                            try {
+                                const preview = latestEntry.content.length > 50 
+                                    ? latestEntry.content.substring(0, 50) + '...' 
+                                    : latestEntry.content;
+                                
+                                await swRegistration.showNotification(`📔 ${otherName} a écrit dans le journal`, {
+                                    body: preview,
+                                    icon: '/love-app/icon.svg',
+                                    badge: '/love-app/icon.svg',
+                                    vibrate: [200, 100, 200],
+                                    tag: 'journal-' + latestEntry.id
+                                });
+                            } catch (error) {
+                                console.error('Erreur notification journal:', error);
+                            }
+                        }
+                    }
+                }
+
+                // Vérifier les défis complétés (pour les deux)
+                const completedChallenges = (state.data.challenges || []).filter(c => c.completed);
+                
+                for (const challenge of completedChallenges) {
+                    if (!notifiedCompletedChallenges.has(challenge.id)) {
+                        notifiedCompletedChallenges.add(challenge.id);
+                        
+                        if ('vibrate' in navigator) {
+                            navigator.vibrate([200, 100, 200, 100, 200]);
+                        }
+                        
+                        if (swRegistration && Notification.permission === 'granted') {
+                            try {
+                                const preview = challenge.challenge.length > 50 
+                                    ? challenge.challenge.substring(0, 50) + '...' 
+                                    : challenge.challenge;
+                                
+                                await swRegistration.showNotification('🎯 Défi accompli !', {
+                                    body: `✅ "${preview}"`,
+                                    icon: '/love-app/icon.svg',
+                                    badge: '/love-app/icon.svg',
+                                    vibrate: [200, 100, 200, 100, 200],
+                                    tag: 'challenge-' + challenge.id
+                                });
+                            } catch (error) {
+                                console.error('Erreur notification défi:', error);
+                            }
+                        }
                     }
                 }
             }, 2000);
