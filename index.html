@@ -838,12 +838,30 @@
             }
         }
 
+        // Service Worker Registration
+        let swRegistration = null;
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/love-app/sw.js')
+                .then(registration => {
+                    swRegistration = registration;
+                    console.log('Service Worker enregistré');
+                })
+                .catch(err => console.error('Erreur Service Worker:', err));
+        }
+
         async function testNotification() {
             alert('🔔 Fonction testNotification appelée !');
             
             // Vérifier si les notifications sont supportées
             if (!('Notification' in window)) {
                 alert('❌ Ton navigateur ne supporte pas les notifications');
+                return;
+            }
+
+            // Vérifier le Service Worker
+            if (!swRegistration) {
+                alert('⚠️ Service Worker pas encore prêt. Attends 2 secondes et réessaye.');
                 return;
             }
 
@@ -854,18 +872,18 @@
                 const permission = await Notification.requestPermission();
                 render(); // Update le statut
                 if (permission !== 'granted') {
-                    alert('❌ Permission refusée. Va dans les paramètres de ton navigateur pour autoriser les notifications.');
+                    alert('❌ Permission refusée');
                     return;
                 }
             }
 
             // Si refusé
             if (Notification.permission === 'denied') {
-                alert('❌ Les notifications sont bloquées.\n\nPour les activer :\n1. Va dans les paramètres de Chrome\n2. Cherche "Notifications"\n3. Autorise ce site');
+                alert('❌ Les notifications sont bloquées.\n\nVa dans les paramètres de Chrome pour les autoriser.');
                 return;
             }
 
-            // Tester la notification
+            // Tester la notification via Service Worker
             if (Notification.permission === 'granted') {
                 alert('✅ Permission OK ! Envoi de la notification...');
                 
@@ -874,17 +892,19 @@
                     navigator.vibrate([200, 100, 200]);
                 }
 
-                // Notification
+                // Notification via Service Worker
                 try {
-                    new Notification('💕 Test réussi !', {
+                    await swRegistration.showNotification('💕 Test réussi !', {
                         body: 'Les notifications fonctionnent ! 🎉',
-                        tag: 'test-notification',
-                        requireInteraction: false
+                        icon: '/love-app/icon.svg',
+                        badge: '/love-app/icon.svg',
+                        vibrate: [200, 100, 200],
+                        tag: 'test-notification'
                     });
                     
-                    alert('✅ Notification créée avec succès !\n\nVérifie ta barre de notifications (tire depuis le haut de l\'écran)');
+                    alert('✅ Notification créée !\n\nVérifie ta barre de notifications (tire depuis le haut)');
                 } catch (error) {
-                    alert('❌ Erreur création notification: ' + error.message);
+                    alert('❌ Erreur : ' + error.message);
                 }
             }
         }
@@ -1730,10 +1750,11 @@
                         try {
                             const permission = await Notification.requestPermission();
                             console.log('Notification permission:', permission);
-                            if (permission === 'granted') {
-                                new Notification('🎉 Notifications activées !', {
-                                    body: 'Tu recevras maintenant les notifications quand Chadoudou active son bon ! 💕',
-                                    icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">💕</text></svg>'
+                            if (permission === 'granted' && swRegistration) {
+                                await swRegistration.showNotification('🎉 Notifications activées !', {
+                                    body: 'Tu recevras les notifications quand Chadoudou active son bon ! 💕',
+                                    icon: '/love-app/icon.svg',
+                                    badge: '/love-app/icon.svg'
                                 });
                             }
                         } catch (error) {
@@ -1752,7 +1773,7 @@
 
             // Notification pour nouvelles activations
             let lastActivationId = null;
-            setInterval(() => {
+            setInterval(async () => {
                 if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
                     const latestPending = state.data.activations.find(a => a.status === 'pending');
                     if (latestPending && latestPending.id !== lastActivationId) {
@@ -1762,11 +1783,18 @@
                             navigator.vibrate([200, 100, 200]);
                         }
                         
-                        if ('Notification' in window && Notification.permission === 'granted') {
-                            new Notification('💕 Chadoudou t\'appelle !', {
-                                body: 'Elle a activé son bon d\'amour',
-                                icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">💕</text></svg>'
-                            });
+                        if (swRegistration && Notification.permission === 'granted') {
+                            try {
+                                await swRegistration.showNotification('💕 Chadoudou t\'appelle !', {
+                                    body: latestPending.message || 'Elle a activé son bon d\'amour',
+                                    icon: '/love-app/icon.svg',
+                                    badge: '/love-app/icon.svg',
+                                    vibrate: [200, 100, 200],
+                                    tag: 'activation-' + latestPending.id
+                                });
+                            } catch (error) {
+                                console.error('Erreur notification:', error);
+                            }
                         }
                         
                         render(); // Force refresh pour afficher la notification
