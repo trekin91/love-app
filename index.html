@@ -514,6 +514,9 @@
         if (!state.deviceId) {
             state.deviceId = 'device-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
             localStorage.setItem('deviceId', state.deviceId);
+            console.log('Device ID créé:', state.deviceId);
+        } else {
+            console.log('Device ID existant:', state.deviceId);
         }
 
         // Fonction pour merger les données sans écraser la structure
@@ -655,33 +658,75 @@
                     headers: { 'X-Master-Key': JSONBIN_API_KEY }
                 });
                 const result = await response.json();
-                state.notificationHistory = result.record || {
+                const allDevicesHistory = result.record || { devices: {} };
+                
+                // Si ancienne structure (pas de devices), migrer
+                if (!allDevicesHistory.devices) {
+                    allDevicesHistory.devices = {};
+                }
+                
+                // Charger l'historique de CET appareil spécifiquement
+                state.notificationHistory = allDevicesHistory.devices[state.deviceId] || {
                     lastActivationId: null,
                     lastResponseId: null,
                     lastJournalId: null,
                     notifiedCapsules: [],
-                    notifiedChallenges: []
+                    notifiedChallenges: [],
+                    lastSeen: new Date().toISOString()
                 };
+                
+                console.log('Historique chargé pour device:', state.deviceId, state.notificationHistory);
             } catch (error) {
                 console.error('Erreur chargement historique notifications:', error);
+                // Initialiser avec un historique vide en cas d'erreur
+                state.notificationHistory = {
+                    lastActivationId: null,
+                    lastResponseId: null,
+                    lastJournalId: null,
+                    notifiedCapsules: [],
+                    notifiedChallenges: [],
+                    lastSeen: new Date().toISOString()
+                };
             }
         }
 
         async function saveNotificationHistory() {
             try {
                 const binId = getNotificationBinId();
-                const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
+                
+                // D'abord, charger toute la structure
+                const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
+                    headers: { 'X-Master-Key': JSONBIN_API_KEY }
+                });
+                const result = await response.json();
+                const allDevicesHistory = result.record || { devices: {} };
+                
+                // Si ancienne structure, migrer
+                if (!allDevicesHistory.devices) {
+                    allDevicesHistory.devices = {};
+                }
+                
+                // Mettre à jour l'historique de CET appareil
+                state.notificationHistory.lastSeen = new Date().toISOString();
+                allDevicesHistory.devices[state.deviceId] = state.notificationHistory;
+                
+                console.log('Sauvegarde historique pour device:', state.deviceId);
+                
+                // Sauvegarder toute la structure
+                const saveResponse = await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
                         'X-Master-Key': JSONBIN_API_KEY
                     },
-                    body: JSON.stringify(state.notificationHistory)
+                    body: JSON.stringify(allDevicesHistory)
                 });
                 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                if (!saveResponse.ok) {
+                    throw new Error(`HTTP error! status: ${saveResponse.status}`);
                 }
+                
+                console.log('Historique sauvegardé avec succès');
             } catch (error) {
                 console.error('Erreur sauvegarde historique notifications:', error);
             }
@@ -692,7 +737,7 @@
             try {
                 await loadSharedData();
                 if (state.currentMode) {
-                    await loadNotificationHistory();
+                    await loadNotificationHistory(); // IMPORTANT: Recharger l'historique à chaque poll
                 }
                 
                 const oldData = JSON.stringify(state.data);
@@ -1007,19 +1052,20 @@
         }
 
         async function resetNotificationHistory() {
-            if (confirm('⚠️ Réinitialiser ton historique de notifications ?\n\nCela te permettra de recevoir à nouveau les notifications pour les événements déjà vus.\n\nNote : Cela n\'affecte que TON appareil, pas celui de l\'autre personne.')) {
-                // Réinitialiser l'historique de notifications
+            if (confirm('⚠️ Réinitialiser l\'historique de notifications de CET appareil ?\n\nCela te permettra de recevoir à nouveau les notifications pour les événements déjà vus.\n\nNote : Cela n\'affecte que CET appareil (ID: ' + state.deviceId.substring(0, 15) + '...), pas les autres appareils.')) {
+                // Réinitialiser l'historique de CET appareil uniquement
                 state.notificationHistory = {
                     lastActivationId: null,
                     lastResponseId: null,
                     lastJournalId: null,
                     notifiedCapsules: [],
-                    notifiedChallenges: []
+                    notifiedChallenges: [],
+                    lastSeen: new Date().toISOString()
                 };
                 
                 await saveNotificationHistory();
                 
-                alert('✅ Historique de notifications réinitialisé !\n\nTu recevras à nouveau les notifications pour les événements récents.');
+                alert('✅ Historique de notifications de cet appareil réinitialisé !\n\nTu recevras à nouveau les notifications pour les événements récents.');
                 render();
             }
         }
@@ -1475,6 +1521,18 @@
             let html = `
                 <p class="subtitle">⚙️ Paramètres & Gestion</p>
                 
+                <div style="background: #f0f0f0; border-radius: 15px; padding: 15px; margin-bottom: 20px;">
+                    <div style="color: #666; font-size: 14px; font-weight: bold; margin-bottom: 8px;">
+                        📱 Identifiant de cet appareil
+                    </div>
+                    <p style="color: #999; font-size: 11px; margin-bottom: 8px; font-family: monospace; word-break: break-all;">
+                        ${state.deviceId}
+                    </p>
+                    <p style="color: #999; font-size: 11px;">
+                        Chaque appareil a son propre historique de notifications. Si vous passez sur le profil de l'autre par erreur, vos notifications ne seront pas affectées.
+                    </p>
+                </div>
+                
                 <div style="background: #e3f2fd; border-radius: 15px; padding: 20px; margin-bottom: 20px;">
                     <div style="color: #1976d2; font-size: 16px; font-weight: bold; margin-bottom: 15px;">
                         🔔 Test des notifications
@@ -1489,10 +1547,10 @@
                         Permission actuelle : <strong id="notif-permission">${Notification.permission === 'granted' ? '✅ Autorisée' : Notification.permission === 'denied' ? '❌ Refusée' : '⚠️ Non demandée'}</strong>
                     </p>
                     <button class="response-btn secondary" id="btn-reset-notif-history" style="width: 100%; margin-top: 15px;">
-                        🔄 Réinitialiser mon historique de notifications
+                        🔄 Réinitialiser l'historique de CET appareil
                     </button>
                     <p style="color: #999; font-size: 11px; margin-top: 5px; text-align: center;">
-                        (Permet de recevoir à nouveau les anciennes notifications)
+                        (Permet de recevoir à nouveau les anciennes notifications sur cet appareil uniquement)
                     </p>
                 </div>
                 
@@ -1876,16 +1934,19 @@
                 }
             }
 
-            // Notification pour nouvelles activations (CHOU) - Utilise bin séparée
+            // Notification pour nouvelles activations (CHOU)
+            // Important: Ne sauvegarde PAS, juste détecte ce qui a été chargé
+            let lastNotifiedActivation = null;
             setInterval(async () => {
                 if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
                     const latestPending = state.data.activations.find(a => a.status === 'pending');
-                    const lastNotified = state.notificationHistory.lastActivationId;
                     
-                    if (latestPending && latestPending.id !== lastNotified) {
-                        // Mettre à jour l'historique et sauvegarder dans la bin de Chou
-                        state.notificationHistory.lastActivationId = latestPending.id;
-                        await saveNotificationHistory();
+                    // Comparer avec l'historique JSONBin (chargé par loadData)
+                    if (latestPending && 
+                        latestPending.id !== state.notificationHistory.lastActivationId &&
+                        latestPending.id !== lastNotifiedActivation) {
+                        
+                        lastNotifiedActivation = latestPending.id;
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200]);
@@ -1900,6 +1961,10 @@
                                     vibrate: [200, 100, 200],
                                     tag: 'activation-' + latestPending.id
                                 });
+                                
+                                // Maintenant on sauvegarde dans l'historique
+                                state.notificationHistory.lastActivationId = latestPending.id;
+                                await saveNotificationHistory();
                             } catch (error) {
                                 console.error('Erreur notification:', error);
                             }
@@ -1910,16 +1975,22 @@
                 }
             }, 2000);
 
-            // Notifications pour les autres événements - Utilise bin séparée
+            // Notifications pour les autres événements
+            // Ne sauvegarde que APRÈS avoir envoyé la notification
+            let lastNotifiedResponse = null;
+            let lastNotifiedJournal = null;
+            
             setInterval(async () => {
                 let needsSave = false;
                 
                 if (state.currentMode === 'agnieszka' && state.data.activations.length > 0) {
                     // Chercher la dernière activation avec une réponse
                     const latestResponse = state.data.activations.find(a => a.status === 'received' && a.response);
-                    if (latestResponse && latestResponse.id !== state.notificationHistory.lastResponseId) {
-                        state.notificationHistory.lastResponseId = latestResponse.id;
-                        needsSave = true;
+                    if (latestResponse && 
+                        latestResponse.id !== state.notificationHistory.lastResponseId &&
+                        latestResponse.id !== lastNotifiedResponse) {
+                        
+                        lastNotifiedResponse = latestResponse.id;
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200]);
@@ -1950,6 +2021,9 @@
                                     vibrate: [200, 100, 200],
                                     tag: 'response-' + latestResponse.id
                                 });
+                                
+                                state.notificationHistory.lastResponseId = latestResponse.id;
+                                needsSave = true;
                             } catch (error) {
                                 console.error('Erreur notification réponse:', error);
                             }
@@ -1968,8 +2042,6 @@
                     const isUnlocked = now >= unlockDate;
                     
                     if (isUnlocked && !state.notificationHistory.notifiedCapsules.includes(capsule.id)) {
-                        state.notificationHistory.notifiedCapsules.push(capsule.id);
-                        needsSave = true;
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([300, 100, 300]);
@@ -1984,6 +2056,9 @@
                                     vibrate: [300, 100, 300],
                                     tag: 'capsule-' + capsule.id
                                 });
+                                
+                                state.notificationHistory.notifiedCapsules.push(capsule.id);
+                                needsSave = true;
                             } catch (error) {
                                 console.error('Erreur notification capsule:', error);
                             }
@@ -1998,9 +2073,10 @@
                 
                 if (journalEntries.length > 0) {
                     const latestEntry = journalEntries[0];
-                    if (latestEntry.id !== state.notificationHistory.lastJournalId) {
-                        state.notificationHistory.lastJournalId = latestEntry.id;
-                        needsSave = true;
+                    if (latestEntry.id !== state.notificationHistory.lastJournalId &&
+                        latestEntry.id !== lastNotifiedJournal) {
+                        
+                        lastNotifiedJournal = latestEntry.id;
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200]);
@@ -2019,6 +2095,9 @@
                                     vibrate: [200, 100, 200],
                                     tag: 'journal-' + latestEntry.id
                                 });
+                                
+                                state.notificationHistory.lastJournalId = latestEntry.id;
+                                needsSave = true;
                             } catch (error) {
                                 console.error('Erreur notification journal:', error);
                             }
@@ -2031,8 +2110,6 @@
                 
                 for (const challenge of completedChallenges) {
                     if (!state.notificationHistory.notifiedChallenges.includes(challenge.id)) {
-                        state.notificationHistory.notifiedChallenges.push(challenge.id);
-                        needsSave = true;
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200, 100, 200]);
@@ -2051,6 +2128,9 @@
                                     vibrate: [200, 100, 200, 100, 200],
                                     tag: 'challenge-' + challenge.id
                                 });
+                                
+                                state.notificationHistory.notifiedChallenges.push(challenge.id);
+                                needsSave = true;
                             } catch (error) {
                                 console.error('Erreur notification défi:', error);
                             }
