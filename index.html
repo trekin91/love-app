@@ -485,7 +485,7 @@
         const JSONBIN_BIN_AGNIESZKA = '69886c69ae596e708f1a475f'; // Historique notifs Chadoudou
         const JSONBIN_BIN_STEPHAN = '69886c88ae596e708f1a4795'; // Historique notifs Chou
         const JSONBIN_API_KEY = '$2a$10$yex/8H/Vt77Ux5fg6qlvYuH2pICXtMk6JqbI1ZOCc3lQ7Oz3X/FP.';
-        const POLL_INTERVAL = 5000;
+        const POLL_INTERVAL = 2000; // 2 secondes pour temps réel
 
         // État global
         const state = {
@@ -740,6 +740,11 @@
                     await loadNotificationHistory(); // IMPORTANT: Recharger l'historique à chaque poll
                 }
                 
+                // Vérifier les notifications APRÈS avoir chargé les données fraîches
+                if (state.currentMode) {
+                    await checkNotifications();
+                }
+                
                 const oldData = JSON.stringify(state.data);
                 
                 // Vérifier s'il y a une NOUVELLE activation (important pour Stephan)
@@ -760,6 +765,189 @@
             } catch (error) {
                 console.error('Erreur chargement:', error);
                 updateConnectionStatus(false);
+            }
+        }
+
+        // Vérifier et envoyer les notifications (appelé après chargement des données)
+        async function checkNotifications() {
+            let needsSave = false;
+            
+            // 1. ACTIVATION DU BON (pour Chou)
+            if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
+                const latestPending = state.data.activations.find(a => a.status === 'pending');
+                
+                if (latestPending && latestPending.id !== state.notificationHistory.lastActivationId) {
+                    if ('vibrate' in navigator) {
+                        navigator.vibrate([200, 100, 200]);
+                    }
+                    
+                    if (swRegistration && Notification.permission === 'granted') {
+                        try {
+                            await swRegistration.showNotification('💕 Chadoudou t\'appelle !', {
+                                body: latestPending.message || 'Elle a activé son bon d\'amour',
+                                icon: '/love-app/icon.svg',
+                                badge: '/love-app/icon.svg',
+                                vibrate: [200, 100, 200],
+                                tag: 'activation-' + latestPending.id
+                            });
+                            
+                            state.notificationHistory.lastActivationId = latestPending.id;
+                            needsSave = true;
+                        } catch (error) {
+                            console.error('Erreur notification activation:', error);
+                        }
+                    }
+                }
+            }
+            
+            // 2. RÉPONSE AU BON (pour Chadoudou)
+            if (state.currentMode === 'agnieszka' && state.data.activations.length > 0) {
+                const latestResponse = state.data.activations.find(a => a.status === 'received' && a.response);
+                
+                if (latestResponse && latestResponse.id !== state.notificationHistory.lastResponseId) {
+                    if ('vibrate' in navigator) {
+                        navigator.vibrate([200, 100, 200]);
+                    }
+                    
+                    if (swRegistration && Notification.permission === 'granted') {
+                        try {
+                            const responseText = {
+                                'arrive1': '💝 Ton Chou arrive ma belle !',
+                                'arrive2': '🏃 J\'arrive en courant ma Chadoudou !',
+                                'arrive3': '💕 Compte sur moi mon cœur !',
+                                'sweet1': '🌹 Message reçu ma chérie !',
+                                'sweet2': '✨ Je suis là pour toi !',
+                                'sweet3': '🥰 J\'accours ma belle !',
+                                'sweet4': '💞 Demande acceptée avec amour !',
+                                'fun1': '🦸 Super Chou à la rescousse !',
+                                'fun2': '🎯 Mission câlin acceptée !',
+                                'wait1': '⏰ 5 minutes mon amour !',
+                                'wait2': '🕐 Je finis un truc et j\'arrive !',
+                                'wait3': '🔜 Presque là ma Chadoudou !',
+                                'wait4': '📍 En chemin vers toi !'
+                            }[latestResponse.response] || latestResponse.response;
+
+                            await swRegistration.showNotification('💌 Chou a répondu !', {
+                                body: responseText,
+                                icon: '/love-app/icon.svg',
+                                badge: '/love-app/icon.svg',
+                                vibrate: [200, 100, 200],
+                                tag: 'response-' + latestResponse.id
+                            });
+                            
+                            state.notificationHistory.lastResponseId = latestResponse.id;
+                            needsSave = true;
+                        } catch (error) {
+                            console.error('Erreur notification réponse:', error);
+                        }
+                    }
+                }
+            }
+            
+            // 3. CAPSULES DÉBLOQUÉES
+            const now = new Date();
+            const myCapsules = (state.data.capsules || []).filter(c => 
+                c.to === (state.currentMode === 'agnieszka' ? 'Chadoudou' : 'Chou')
+            );
+            
+            for (const capsule of myCapsules) {
+                const unlockDate = new Date(capsule.unlockAt);
+                const isUnlocked = now >= unlockDate;
+                
+                if (isUnlocked && !state.notificationHistory.notifiedCapsules.includes(capsule.id)) {
+                    if ('vibrate' in navigator) {
+                        navigator.vibrate([300, 100, 300]);
+                    }
+                    
+                    if (swRegistration && Notification.permission === 'granted') {
+                        try {
+                            await swRegistration.showNotification('🎁 Capsule débloquée !', {
+                                body: `${capsule.from} t'a laissé un message d'amour 💕`,
+                                icon: '/love-app/icon.svg',
+                                badge: '/love-app/icon.svg',
+                                vibrate: [300, 100, 300],
+                                tag: 'capsule-' + capsule.id
+                            });
+                            
+                            state.notificationHistory.notifiedCapsules.push(capsule.id);
+                            needsSave = true;
+                        } catch (error) {
+                            console.error('Erreur notification capsule:', error);
+                        }
+                    }
+                }
+            }
+            
+            // 4. JOURNAL
+            const otherName = state.currentMode === 'agnieszka' ? 'Chou' : 'Chadoudou';
+            const journalEntries = (state.data.journal || []).filter(e => e.author === otherName);
+            
+            if (journalEntries.length > 0) {
+                const latestEntry = journalEntries[0];
+                
+                if (latestEntry.id !== state.notificationHistory.lastJournalId) {
+                    if ('vibrate' in navigator) {
+                        navigator.vibrate([200, 100, 200]);
+                    }
+                    
+                    if (swRegistration && Notification.permission === 'granted') {
+                        try {
+                            const preview = latestEntry.content.length > 50 
+                                ? latestEntry.content.substring(0, 50) + '...' 
+                                : latestEntry.content;
+                            
+                            await swRegistration.showNotification(`📔 ${otherName} a écrit dans le journal`, {
+                                body: preview,
+                                icon: '/love-app/icon.svg',
+                                badge: '/love-app/icon.svg',
+                                vibrate: [200, 100, 200],
+                                tag: 'journal-' + latestEntry.id
+                            });
+                            
+                            state.notificationHistory.lastJournalId = latestEntry.id;
+                            needsSave = true;
+                        } catch (error) {
+                            console.error('Erreur notification journal:', error);
+                        }
+                    }
+                }
+            }
+            
+            // 5. DÉFIS COMPLÉTÉS
+            const completedChallenges = (state.data.challenges || []).filter(c => c.completed);
+            
+            for (const challenge of completedChallenges) {
+                if (!state.notificationHistory.notifiedChallenges.includes(challenge.id)) {
+                    if ('vibrate' in navigator) {
+                        navigator.vibrate([200, 100, 200, 100, 200]);
+                    }
+                    
+                    if (swRegistration && Notification.permission === 'granted') {
+                        try {
+                            const preview = challenge.challenge.length > 50 
+                                ? challenge.challenge.substring(0, 50) + '...' 
+                                : challenge.challenge;
+                            
+                            await swRegistration.showNotification('🎯 Défi accompli !', {
+                                body: `✅ "${preview}"`,
+                                icon: '/love-app/icon.svg',
+                                badge: '/love-app/icon.svg',
+                                vibrate: [200, 100, 200, 100, 200],
+                                tag: 'challenge-' + challenge.id
+                            });
+                            
+                            state.notificationHistory.notifiedChallenges.push(challenge.id);
+                            needsSave = true;
+                        } catch (error) {
+                            console.error('Erreur notification défi:', error);
+                        }
+                    }
+                }
+            }
+            
+            // Sauvegarder l'historique si changements
+            if (needsSave) {
+                await saveNotificationHistory();
             }
         }
 
@@ -1943,216 +2131,6 @@
                     }, 3000);
                 }
             }
-
-            // Notification pour nouvelles activations (CHOU)
-            // Important: Ne sauvegarde PAS, juste détecte ce qui a été chargé
-            let lastNotifiedActivation = null;
-            setInterval(async () => {
-                if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
-                    const latestPending = state.data.activations.find(a => a.status === 'pending');
-                    
-                    // Comparer avec l'historique JSONBin (chargé par loadData)
-                    if (latestPending && 
-                        latestPending.id !== state.notificationHistory.lastActivationId &&
-                        latestPending.id !== lastNotifiedActivation) {
-                        
-                        lastNotifiedActivation = latestPending.id;
-                        
-                        if ('vibrate' in navigator) {
-                            navigator.vibrate([200, 100, 200]);
-                        }
-                        
-                        if (swRegistration && Notification.permission === 'granted') {
-                            try {
-                                await swRegistration.showNotification('💕 Chadoudou t\'appelle !', {
-                                    body: latestPending.message || 'Elle a activé son bon d\'amour',
-                                    icon: '/love-app/icon.svg',
-                                    badge: '/love-app/icon.svg',
-                                    vibrate: [200, 100, 200],
-                                    tag: 'activation-' + latestPending.id
-                                });
-                                
-                                // Maintenant on sauvegarde dans l'historique
-                                state.notificationHistory.lastActivationId = latestPending.id;
-                                await saveNotificationHistory();
-                            } catch (error) {
-                                console.error('Erreur notification:', error);
-                            }
-                        }
-                        
-                        render();
-                    }
-                }
-            }, 2000);
-
-            // Notifications pour les autres événements
-            // Ne sauvegarde que APRÈS avoir envoyé la notification
-            let lastNotifiedResponse = null;
-            let lastNotifiedJournal = null;
-            
-            setInterval(async () => {
-                let needsSave = false;
-                
-                if (state.currentMode === 'agnieszka' && state.data.activations.length > 0) {
-                    // Chercher la dernière activation avec une réponse
-                    const latestResponse = state.data.activations.find(a => a.status === 'received' && a.response);
-                    if (latestResponse && 
-                        latestResponse.id !== state.notificationHistory.lastResponseId &&
-                        latestResponse.id !== lastNotifiedResponse) {
-                        
-                        lastNotifiedResponse = latestResponse.id;
-                        
-                        if ('vibrate' in navigator) {
-                            navigator.vibrate([200, 100, 200]);
-                        }
-                        
-                        if (swRegistration && Notification.permission === 'granted') {
-                            try {
-                                const responseText = {
-                                    'arrive1': '💝 Ton Chou arrive ma belle !',
-                                    'arrive2': '🏃 J\'arrive en courant ma Chadoudou !',
-                                    'arrive3': '💕 Compte sur moi mon cœur !',
-                                    'sweet1': '🌹 Message reçu ma chérie !',
-                                    'sweet2': '✨ Je suis là pour toi !',
-                                    'sweet3': '🥰 J\'accours ma belle !',
-                                    'sweet4': '💞 Demande acceptée avec amour !',
-                                    'fun1': '🦸 Super Chou à la rescousse !',
-                                    'fun2': '🎯 Mission câlin acceptée !',
-                                    'wait1': '⏰ 5 minutes mon amour !',
-                                    'wait2': '🕐 Je finis un truc et j\'arrive !',
-                                    'wait3': '🔜 Presque là ma Chadoudou !',
-                                    'wait4': '📍 En chemin vers toi !'
-                                }[latestResponse.response] || latestResponse.response;
-
-                                await swRegistration.showNotification('💌 Chou a répondu !', {
-                                    body: responseText,
-                                    icon: '/love-app/icon.svg',
-                                    badge: '/love-app/icon.svg',
-                                    vibrate: [200, 100, 200],
-                                    tag: 'response-' + latestResponse.id
-                                });
-                                
-                                state.notificationHistory.lastResponseId = latestResponse.id;
-                                needsSave = true;
-                            } catch (error) {
-                                console.error('Erreur notification réponse:', error);
-                            }
-                        }
-                    }
-                }
-
-                // Vérifier les capsules débloquées (pour les deux)
-                const now = new Date();
-                const myCapsules = (state.data.capsules || []).filter(c => 
-                    c.to === (state.currentMode === 'agnieszka' ? 'Chadoudou' : 'Chou')
-                );
-                
-                for (const capsule of myCapsules) {
-                    const unlockDate = new Date(capsule.unlockAt);
-                    const isUnlocked = now >= unlockDate;
-                    
-                    if (isUnlocked && !state.notificationHistory.notifiedCapsules.includes(capsule.id)) {
-                        
-                        if ('vibrate' in navigator) {
-                            navigator.vibrate([300, 100, 300]);
-                        }
-                        
-                        if (swRegistration && Notification.permission === 'granted') {
-                            try {
-                                await swRegistration.showNotification('🎁 Capsule débloquée !', {
-                                    body: `${capsule.from} t'a laissé un message d'amour 💕`,
-                                    icon: '/love-app/icon.svg',
-                                    badge: '/love-app/icon.svg',
-                                    vibrate: [300, 100, 300],
-                                    tag: 'capsule-' + capsule.id
-                                });
-                                
-                                state.notificationHistory.notifiedCapsules.push(capsule.id);
-                                needsSave = true;
-                            } catch (error) {
-                                console.error('Erreur notification capsule:', error);
-                            }
-                        }
-                    }
-                }
-
-                // Vérifier les nouvelles entrées journal (pour les deux)
-                const myName = state.currentMode === 'agnieszka' ? 'Chadoudou' : 'Chou';
-                const otherName = state.currentMode === 'agnieszka' ? 'Chou' : 'Chadoudou';
-                const journalEntries = (state.data.journal || []).filter(e => e.author === otherName);
-                
-                if (journalEntries.length > 0) {
-                    const latestEntry = journalEntries[0];
-                    if (latestEntry.id !== state.notificationHistory.lastJournalId &&
-                        latestEntry.id !== lastNotifiedJournal) {
-                        
-                        lastNotifiedJournal = latestEntry.id;
-                        
-                        if ('vibrate' in navigator) {
-                            navigator.vibrate([200, 100, 200]);
-                        }
-                        
-                        if (swRegistration && Notification.permission === 'granted') {
-                            try {
-                                const preview = latestEntry.content.length > 50 
-                                    ? latestEntry.content.substring(0, 50) + '...' 
-                                    : latestEntry.content;
-                                
-                                await swRegistration.showNotification(`📔 ${otherName} a écrit dans le journal`, {
-                                    body: preview,
-                                    icon: '/love-app/icon.svg',
-                                    badge: '/love-app/icon.svg',
-                                    vibrate: [200, 100, 200],
-                                    tag: 'journal-' + latestEntry.id
-                                });
-                                
-                                state.notificationHistory.lastJournalId = latestEntry.id;
-                                needsSave = true;
-                            } catch (error) {
-                                console.error('Erreur notification journal:', error);
-                            }
-                        }
-                    }
-                }
-
-                // Vérifier les défis complétés (pour les deux)
-                const completedChallenges = (state.data.challenges || []).filter(c => c.completed);
-                
-                for (const challenge of completedChallenges) {
-                    if (!state.notificationHistory.notifiedChallenges.includes(challenge.id)) {
-                        
-                        if ('vibrate' in navigator) {
-                            navigator.vibrate([200, 100, 200, 100, 200]);
-                        }
-                        
-                        if (swRegistration && Notification.permission === 'granted') {
-                            try {
-                                const preview = challenge.challenge.length > 50 
-                                    ? challenge.challenge.substring(0, 50) + '...' 
-                                    : challenge.challenge;
-                                
-                                await swRegistration.showNotification('🎯 Défi accompli !', {
-                                    body: `✅ "${preview}"`,
-                                    icon: '/love-app/icon.svg',
-                                    badge: '/love-app/icon.svg',
-                                    vibrate: [200, 100, 200, 100, 200],
-                                    tag: 'challenge-' + challenge.id
-                                });
-                                
-                                state.notificationHistory.notifiedChallenges.push(challenge.id);
-                                needsSave = true;
-                            } catch (error) {
-                                console.error('Erreur notification défi:', error);
-                            }
-                        }
-                    }
-                }
-                
-                // Sauvegarder l'historique si changements
-                if (needsSave) {
-                    await saveNotificationHistory();
-                }
-            }, 2000);
         })();
     </script>
 </body>
