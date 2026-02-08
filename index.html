@@ -1773,17 +1773,24 @@
 
             // Notification pour nouvelles activations (CHOU)
             let lastActivationId = localStorage.getItem('lastActivationId') || null;
+            let isInitialized = false;
             
-            // Initialiser avec les données actuelles si pas encore de tracking
-            if (!lastActivationId && state.data.activations.length > 0) {
-                const latestPending = state.data.activations.find(a => a.status === 'pending');
-                if (latestPending) {
-                    lastActivationId = latestPending.id;
-                    localStorage.setItem('lastActivationId', lastActivationId);
+            // Attendre 5 secondes avant de commencer à monitorer (temps pour que l'utilisateur charge la page)
+            setTimeout(() => {
+                // Initialiser avec les données actuelles si pas encore de tracking
+                if (!lastActivationId && state.data.activations.length > 0) {
+                    const latestPending = state.data.activations.find(a => a.status === 'pending');
+                    if (latestPending) {
+                        lastActivationId = latestPending.id;
+                        localStorage.setItem('lastActivationId', lastActivationId);
+                    }
                 }
-            }
+                isInitialized = true;
+            }, 5000);
             
             setInterval(async () => {
+                if (!isInitialized) return; // Ne pas notifier avant l'initialisation
+                
                 if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
                     const latestPending = state.data.activations.find(a => a.status === 'pending');
                     if (latestPending && latestPending.id !== lastActivationId) {
@@ -1818,41 +1825,49 @@
             let notifiedCapsules = new Set(JSON.parse(localStorage.getItem('notifiedCapsules') || '[]'));
             let lastJournalId = localStorage.getItem('lastJournalId') || null;
             let notifiedCompletedChallenges = new Set(JSON.parse(localStorage.getItem('notifiedCompletedChallenges') || '[]'));
+            let isInitializedOther = false;
             
-            // Initialiser avec les données actuelles si pas encore de tracking (évite re-notification au premier chargement)
-            if (!lastResponseId && state.data.activations.length > 0) {
-                const latestResponse = state.data.activations.find(a => a.status === 'received' && a.response);
-                if (latestResponse) {
-                    lastResponseId = latestResponse.id;
-                    localStorage.setItem('lastResponseId', lastResponseId);
-                }
-            }
-            
-            if (!lastJournalId && state.data.journal && state.data.journal.length > 0) {
-                lastJournalId = state.data.journal[0].id;
-                localStorage.setItem('lastJournalId', lastJournalId);
-            }
-            
-            // Initialiser capsules et défis déjà présents
-            const now = new Date();
-            if (notifiedCapsules.size === 0) {
-                (state.data.capsules || []).forEach(capsule => {
-                    const unlockDate = new Date(capsule.unlockAt);
-                    if (now >= unlockDate) {
-                        notifiedCapsules.add(capsule.id);
+            // Attendre 5 secondes avant de commencer à monitorer
+            setTimeout(() => {
+                // Initialiser avec les données actuelles si pas encore de tracking (évite re-notification au premier chargement)
+                if (!lastResponseId && state.data.activations.length > 0) {
+                    const latestResponse = state.data.activations.find(a => a.status === 'received' && a.response);
+                    if (latestResponse) {
+                        lastResponseId = latestResponse.id;
+                        localStorage.setItem('lastResponseId', lastResponseId);
                     }
-                });
-                localStorage.setItem('notifiedCapsules', JSON.stringify([...notifiedCapsules]));
-            }
-            
-            if (notifiedCompletedChallenges.size === 0) {
-                (state.data.challenges || []).filter(c => c.completed).forEach(challenge => {
-                    notifiedCompletedChallenges.add(challenge.id);
-                });
-                localStorage.setItem('notifiedCompletedChallenges', JSON.stringify([...notifiedCompletedChallenges]));
-            }
+                }
+                
+                if (!lastJournalId && state.data.journal && state.data.journal.length > 0) {
+                    lastJournalId = state.data.journal[0].id;
+                    localStorage.setItem('lastJournalId', lastJournalId);
+                }
+                
+                // Initialiser capsules et défis déjà présents
+                const now = new Date();
+                if (notifiedCapsules.size === 0) {
+                    (state.data.capsules || []).forEach(capsule => {
+                        const unlockDate = new Date(capsule.unlockAt);
+                        if (now >= unlockDate) {
+                            notifiedCapsules.add(capsule.id);
+                        }
+                    });
+                    localStorage.setItem('notifiedCapsules', JSON.stringify([...notifiedCapsules]));
+                }
+                
+                if (notifiedCompletedChallenges.size === 0) {
+                    (state.data.challenges || []).filter(c => c.completed).forEach(challenge => {
+                        notifiedCompletedChallenges.add(challenge.id);
+                    });
+                    localStorage.setItem('notifiedCompletedChallenges', JSON.stringify([...notifiedCompletedChallenges]));
+                }
+                
+                isInitializedOther = true;
+            }, 5000);
             
             setInterval(async () => {
+                if (!isInitializedOther) return; // Ne pas notifier avant l'initialisation
+                
                 if (state.currentMode === 'agnieszka' && state.data.activations.length > 0) {
                     // Chercher la dernière activation avec une réponse
                     const latestResponse = state.data.activations.find(a => a.status === 'received' && a.response);
