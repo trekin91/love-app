@@ -481,7 +481,9 @@
 
     <script>
         // Configuration
-        const JSONBIN_BIN_ID = '6986eb06ae596e708f17bb78';
+        const JSONBIN_BIN_SHARED = '69886c41d0ea881f40a9d99e'; // Données partagées
+        const JSONBIN_BIN_AGNIESZKA = '69886c69ae596e708f1a475f'; // Historique notifs Chadoudou
+        const JSONBIN_BIN_STEPHAN = '69886c88ae596e708f1a4795'; // Historique notifs Chou
         const JSONBIN_API_KEY = '$2a$10$yex/8H/Vt77Ux5fg6qlvYuH2pICXtMk6JqbI1ZOCc3lQ7Oz3X/FP.';
         const POLL_INTERVAL = 5000;
 
@@ -489,6 +491,14 @@
         const state = {
             currentMode: null,
             currentTab: 'voucher',
+            deviceId: localStorage.getItem('deviceId') || null,
+            notificationHistory: {
+                lastActivationId: null,
+                lastResponseId: null,
+                lastJournalId: null,
+                notifiedCapsules: [],
+                notifiedChallenges: []
+            },
             data: {
                 activations: [],
                 journal: [],
@@ -496,16 +506,15 @@
                 whyLove: [],
                 dateIdeas: [],
                 challenges: [],
-                stats: { totalActivations: 0, totalResponses: 0 },
-                notificationHistory: {
-                    lastActivationId: null,
-                    lastResponseId: null,
-                    lastJournalId: null,
-                    notifiedCapsules: [],
-                    notifiedChallenges: []
-                }
+                stats: { totalActivations: 0, totalResponses: 0 }
             }
         };
+        
+        // Générer un ID unique pour cet appareil si pas déjà fait
+        if (!state.deviceId) {
+            state.deviceId = 'device-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+            localStorage.setItem('deviceId', state.deviceId);
+        }
 
         // Fonction pour merger les données sans écraser la structure
         function mergeData(newData) {
@@ -516,14 +525,7 @@
                 whyLove: newData.whyLove || [],
                 dateIdeas: newData.dateIdeas || [],
                 challenges: newData.challenges || [],
-                stats: newData.stats || { totalActivations: 0, totalResponses: 0 },
-                notificationHistory: newData.notificationHistory || {
-                    lastActivationId: null,
-                    lastResponseId: null,
-                    lastJournalId: null,
-                    notifiedCapsules: [],
-                    notifiedChallenges: []
-                }
+                stats: newData.stats || { totalActivations: 0, totalResponses: 0 }
             };
         }
 
@@ -600,43 +602,25 @@
         // API JSONBin
         let lastActivationId = null;
         
-        async function loadData() {
+        // API JSONBin - Données partagées
+        async function loadSharedData() {
             try {
-                const response = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
+                const response = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_SHARED}/latest`, {
                     headers: { 'X-Master-Key': JSONBIN_API_KEY }
                 });
                 const result = await response.json();
-                const oldData = JSON.stringify(state.data);
                 mergeData(result.record);
                 updateConnectionStatus(true);
-                
-                // Vérifier s'il y a une NOUVELLE activation (important pour Stephan)
-                if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
-                    const latestActivation = state.data.activations[0];
-                    if (latestActivation.id !== lastActivationId && latestActivation.status === 'pending') {
-                        lastActivationId = latestActivation.id;
-                        render(); // Render seulement pour nouvelle activation
-                    }
-                }
-                
-                // Pour Agnieszka, vérifier si une réponse est arrivée
-                if (state.currentMode === 'agnieszka') {
-                    const newData = JSON.stringify(state.data);
-                    // Si les données ont changé ET que l'utilisateur n'est PAS dans un champ de texte
-                    if (oldData !== newData && !document.activeElement.matches('textarea, input[type="text"]')) {
-                        render();
-                    }
-                }
             } catch (error) {
-                console.error('Erreur chargement:', error);
+                console.error('Erreur chargement données partagées:', error);
                 updateConnectionStatus(false);
             }
         }
 
-        async function saveData() {
+        async function saveSharedData() {
             try {
-                console.log('Saving data to JSONBin...', state.data);
-                const response = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`, {
+                console.log('Saving shared data to JSONBin...', state.data);
+                const response = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_SHARED}`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -650,13 +634,92 @@
                 }
                 
                 const result = await response.json();
-                console.log('Save successful:', result);
+                console.log('Shared data save successful:', result);
                 updateConnectionStatus(true);
             } catch (error) {
-                console.error('Erreur sauvegarde:', error);
+                console.error('Erreur sauvegarde données partagées:', error);
                 updateConnectionStatus(false);
-                throw error; // Re-throw pour que addPhotoToGallery puisse gérer l'erreur
+                throw error;
             }
+        }
+
+        // API JSONBin - Historique notifications (bin spécifique selon profil)
+        function getNotificationBinId() {
+            return state.currentMode === 'agnieszka' ? JSONBIN_BIN_AGNIESZKA : JSONBIN_BIN_STEPHAN;
+        }
+
+        async function loadNotificationHistory() {
+            try {
+                const binId = getNotificationBinId();
+                const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}/latest`, {
+                    headers: { 'X-Master-Key': JSONBIN_API_KEY }
+                });
+                const result = await response.json();
+                state.notificationHistory = result.record || {
+                    lastActivationId: null,
+                    lastResponseId: null,
+                    lastJournalId: null,
+                    notifiedCapsules: [],
+                    notifiedChallenges: []
+                };
+            } catch (error) {
+                console.error('Erreur chargement historique notifications:', error);
+            }
+        }
+
+        async function saveNotificationHistory() {
+            try {
+                const binId = getNotificationBinId();
+                const response = await fetch(`https://api.jsonbin.io/v3/b/${binId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Master-Key': JSONBIN_API_KEY
+                    },
+                    body: JSON.stringify(state.notificationHistory)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+            } catch (error) {
+                console.error('Erreur sauvegarde historique notifications:', error);
+            }
+        }
+
+        // Fonctions combinées (compatibilité avec le reste du code)
+        async function loadData() {
+            try {
+                await loadSharedData();
+                if (state.currentMode) {
+                    await loadNotificationHistory();
+                }
+                
+                const oldData = JSON.stringify(state.data);
+                
+                // Vérifier s'il y a une NOUVELLE activation (important pour Stephan)
+                if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
+                    const latestActivation = state.data.activations[0];
+                    if (latestActivation.id !== state.notificationHistory.lastActivationId && latestActivation.status === 'pending') {
+                        render();
+                    }
+                }
+                
+                // Pour Agnieszka, vérifier si une réponse est arrivée
+                if (state.currentMode === 'agnieszka') {
+                    const newData = JSON.stringify(state.data);
+                    if (oldData !== newData && !document.activeElement.matches('textarea, input[type="text"]')) {
+                        render();
+                    }
+                }
+            } catch (error) {
+                console.error('Erreur chargement:', error);
+                updateConnectionStatus(false);
+            }
+        }
+
+        async function saveData() {
+            await saveSharedData();
         }
 
         async function addWhyLove() {
@@ -925,7 +988,7 @@
 
         async function resetData() {
             if (confirm('⚠️ Es-tu sûr de vouloir supprimer TOUTES les données ?\n\nCela effacera :\n- Toutes les activations\n- Tout le journal\n- Toutes les capsules\n- Toutes les raisons\n- Toutes les idées de dates\n- Tous les défis\n- Toutes les statistiques\n\nCette action est IRRÉVERSIBLE !')) {
-                // Réinitialiser les données
+                // Réinitialiser les données partagées
                 state.data = {
                     activations: [],
                     journal: [],
@@ -939,6 +1002,24 @@
                 await saveData();
                 
                 alert('✅ Toutes les données ont été réinitialisées !');
+                render();
+            }
+        }
+
+        async function resetNotificationHistory() {
+            if (confirm('⚠️ Réinitialiser ton historique de notifications ?\n\nCela te permettra de recevoir à nouveau les notifications pour les événements déjà vus.\n\nNote : Cela n\'affecte que TON appareil, pas celui de l\'autre personne.')) {
+                // Réinitialiser l'historique de notifications
+                state.notificationHistory = {
+                    lastActivationId: null,
+                    lastResponseId: null,
+                    lastJournalId: null,
+                    notifiedCapsules: [],
+                    notifiedChallenges: []
+                };
+                
+                await saveNotificationHistory();
+                
+                alert('✅ Historique de notifications réinitialisé !\n\nTu recevras à nouveau les notifications pour les événements récents.');
                 render();
             }
         }
@@ -1407,6 +1488,12 @@
                     <p style="color: #999; font-size: 12px; margin-top: 10px; text-align: center;">
                         Permission actuelle : <strong id="notif-permission">${Notification.permission === 'granted' ? '✅ Autorisée' : Notification.permission === 'denied' ? '❌ Refusée' : '⚠️ Non demandée'}</strong>
                     </p>
+                    <button class="response-btn secondary" id="btn-reset-notif-history" style="width: 100%; margin-top: 15px;">
+                        🔄 Réinitialiser mon historique de notifications
+                    </button>
+                    <p style="color: #999; font-size: 11px; margin-top: 5px; text-align: center;">
+                        (Permet de recevoir à nouveau les anciennes notifications)
+                    </p>
                 </div>
                 
                 <div style="background: #fff5f7; border-radius: 15px; padding: 20px; margin-bottom: 20px;">
@@ -1697,6 +1784,8 @@
                     resetData();
                 } else if (target.id === 'btn-test-notif') {
                     testNotification();
+                } else if (target.id === 'btn-reset-notif-history') {
+                    resetNotificationHistory();
                 }
                 
                 // Delete category buttons
@@ -1730,20 +1819,22 @@
         // Init
         let pollInterval;
 
-        document.getElementById('agnieszkaBtn').addEventListener('click', () => {
+        document.getElementById('agnieszkaBtn').addEventListener('click', async () => {
             state.currentMode = 'agnieszka';
             localStorage.setItem('loveAppMode', 'agnieszka');
             document.getElementById('agnieszkaBtn').classList.add('active');
             document.getElementById('stephanBtn').classList.remove('active');
+            await loadNotificationHistory(); // Charger l'historique de Chadoudou
             render();
             if (!pollInterval) pollInterval = setInterval(loadData, POLL_INTERVAL);
         });
 
-        document.getElementById('stephanBtn').addEventListener('click', () => {
+        document.getElementById('stephanBtn').addEventListener('click', async () => {
             state.currentMode = 'stephan';
             localStorage.setItem('loveAppMode', 'stephan');
             document.getElementById('stephanBtn').classList.add('active');
             document.getElementById('agnieszkaBtn').classList.remove('active');
+            await loadNotificationHistory(); // Charger l'historique de Chou
             render();
             if (!pollInterval) pollInterval = setInterval(loadData, POLL_INTERVAL);
         });
@@ -1785,16 +1876,16 @@
                 }
             }
 
-            // Notification pour nouvelles activations (CHOU) - Utilise JSONBin au lieu de localStorage
+            // Notification pour nouvelles activations (CHOU) - Utilise bin séparée
             setInterval(async () => {
                 if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
                     const latestPending = state.data.activations.find(a => a.status === 'pending');
-                    const lastNotified = state.data.notificationHistory.lastActivationId;
+                    const lastNotified = state.notificationHistory.lastActivationId;
                     
                     if (latestPending && latestPending.id !== lastNotified) {
-                        // Mettre à jour l'historique dans JSONBin
-                        state.data.notificationHistory.lastActivationId = latestPending.id;
-                        await saveData();
+                        // Mettre à jour l'historique et sauvegarder dans la bin de Chou
+                        state.notificationHistory.lastActivationId = latestPending.id;
+                        await saveNotificationHistory();
                         
                         if ('vibrate' in navigator) {
                             navigator.vibrate([200, 100, 200]);
@@ -1819,15 +1910,15 @@
                 }
             }, 2000);
 
-            // Notifications pour les autres événements - Utilise JSONBin au lieu de localStorage
+            // Notifications pour les autres événements - Utilise bin séparée
             setInterval(async () => {
                 let needsSave = false;
                 
                 if (state.currentMode === 'agnieszka' && state.data.activations.length > 0) {
                     // Chercher la dernière activation avec une réponse
                     const latestResponse = state.data.activations.find(a => a.status === 'received' && a.response);
-                    if (latestResponse && latestResponse.id !== state.data.notificationHistory.lastResponseId) {
-                        state.data.notificationHistory.lastResponseId = latestResponse.id;
+                    if (latestResponse && latestResponse.id !== state.notificationHistory.lastResponseId) {
+                        state.notificationHistory.lastResponseId = latestResponse.id;
                         needsSave = true;
                         
                         if ('vibrate' in navigator) {
@@ -1876,8 +1967,8 @@
                     const unlockDate = new Date(capsule.unlockAt);
                     const isUnlocked = now >= unlockDate;
                     
-                    if (isUnlocked && !state.data.notificationHistory.notifiedCapsules.includes(capsule.id)) {
-                        state.data.notificationHistory.notifiedCapsules.push(capsule.id);
+                    if (isUnlocked && !state.notificationHistory.notifiedCapsules.includes(capsule.id)) {
+                        state.notificationHistory.notifiedCapsules.push(capsule.id);
                         needsSave = true;
                         
                         if ('vibrate' in navigator) {
@@ -1907,8 +1998,8 @@
                 
                 if (journalEntries.length > 0) {
                     const latestEntry = journalEntries[0];
-                    if (latestEntry.id !== state.data.notificationHistory.lastJournalId) {
-                        state.data.notificationHistory.lastJournalId = latestEntry.id;
+                    if (latestEntry.id !== state.notificationHistory.lastJournalId) {
+                        state.notificationHistory.lastJournalId = latestEntry.id;
                         needsSave = true;
                         
                         if ('vibrate' in navigator) {
@@ -1939,8 +2030,8 @@
                 const completedChallenges = (state.data.challenges || []).filter(c => c.completed);
                 
                 for (const challenge of completedChallenges) {
-                    if (!state.data.notificationHistory.notifiedChallenges.includes(challenge.id)) {
-                        state.data.notificationHistory.notifiedChallenges.push(challenge.id);
+                    if (!state.notificationHistory.notifiedChallenges.includes(challenge.id)) {
+                        state.notificationHistory.notifiedChallenges.push(challenge.id);
                         needsSave = true;
                         
                         if ('vibrate' in navigator) {
@@ -1969,7 +2060,7 @@
                 
                 // Sauvegarder l'historique si changements
                 if (needsSave) {
-                    await saveData();
+                    await saveNotificationHistory();
                 }
             }, 2000);
         })();
