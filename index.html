@@ -91,7 +91,7 @@
             display: flex;
             gap: 8px;
             margin-bottom: 20px;
-            overflow-x: auto;
+            flex-wrap: wrap;
         }
 
         .nav-tab {
@@ -103,8 +103,9 @@
             font-size: 14px;
             font-weight: bold;
             cursor: pointer;
-            white-space: nowrap;
             transition: all 0.3s ease;
+            flex: 0 0 calc(25% - 6px);
+            text-align: center;
         }
 
         .nav-tab.active {
@@ -492,6 +493,9 @@
                 activations: [],
                 journal: [],
                 capsules: [],
+                whyLove: [],
+                dateIdeas: [],
+                challenges: [],
                 stats: { totalActivations: 0, totalResponses: 0 }
             }
         };
@@ -502,6 +506,9 @@
                 activations: newData.activations || [],
                 journal: newData.journal || [],
                 capsules: newData.capsules || [],
+                whyLove: newData.whyLove || [],
+                dateIdeas: newData.dateIdeas || [],
+                challenges: newData.challenges || [],
                 stats: newData.stats || { totalActivations: 0, totalResponses: 0 }
             };
         }
@@ -577,18 +584,34 @@
         }
 
         // API JSONBin
+        let lastActivationId = null;
+        
         async function loadData() {
             try {
                 const response = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}/latest`, {
                     headers: { 'X-Master-Key': JSONBIN_API_KEY }
                 });
                 const result = await response.json();
+                const oldData = JSON.stringify(state.data);
                 mergeData(result.record);
                 updateConnectionStatus(true);
                 
-                // Seulement render si on a détecté un changement
-                if (state.currentMode) {
-                    render();
+                // Vérifier s'il y a une NOUVELLE activation (important pour Stephan)
+                if (state.currentMode === 'stephan' && state.data.activations.length > 0) {
+                    const latestActivation = state.data.activations[0];
+                    if (latestActivation.id !== lastActivationId && latestActivation.status === 'pending') {
+                        lastActivationId = latestActivation.id;
+                        render(); // Render seulement pour nouvelle activation
+                    }
+                }
+                
+                // Pour Agnieszka, vérifier si une réponse est arrivée
+                if (state.currentMode === 'agnieszka') {
+                    const newData = JSON.stringify(state.data);
+                    // Si les données ont changé ET que l'utilisateur n'est PAS dans un champ de texte
+                    if (oldData !== newData && !document.activeElement.matches('textarea, input[type="text"]')) {
+                        render();
+                    }
                 }
             } catch (error) {
                 console.error('Erreur chargement:', error);
@@ -598,7 +621,8 @@
 
         async function saveData() {
             try {
-                await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`, {
+                console.log('Saving data to JSONBin...', state.data);
+                const response = await fetch(`https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`, {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json',
@@ -606,20 +630,265 @@
                     },
                     body: JSON.stringify(state.data)
                 });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                console.log('Save successful:', result);
                 updateConnectionStatus(true);
             } catch (error) {
                 console.error('Erreur sauvegarde:', error);
                 updateConnectionStatus(false);
+                throw error; // Re-throw pour que addPhotoToGallery puisse gérer l'erreur
+            }
+        }
+
+        async function addWhyLove() {
+            const textarea = document.getElementById('whyLoveText');
+            const reason = textarea?.value.trim();
+            
+            if (reason) {
+                const entry = {
+                    id: Date.now(),
+                    author: state.currentMode === 'agnieszka' ? 'Chadoudou' : 'Chou',
+                    reason: reason,
+                    timestamp: new Date().toISOString()
+                };
+                state.data.whyLove = state.data.whyLove || [];
+                state.data.whyLove.unshift(entry);
+                await saveData();
+                textarea.value = '';
+                render();
+            }
+        }
+
+        async function deleteWhyLove(index) {
+            if (confirm('Supprimer cette raison ?')) {
+                state.data.whyLove.splice(index, 1);
+                await saveData();
+                render();
+            }
+        }
+
+        async function addDateIdea() {
+            const textarea = document.getElementById('dateIdeaText');
+            const idea = textarea?.value.trim();
+            
+            if (idea) {
+                const entry = {
+                    id: Date.now(),
+                    author: state.currentMode === 'agnieszka' ? 'Chadoudou' : 'Chou',
+                    idea: idea,
+                    done: false,
+                    timestamp: new Date().toISOString()
+                };
+                state.data.dateIdeas = state.data.dateIdeas || [];
+                state.data.dateIdeas.unshift(entry);
+                await saveData();
+                textarea.value = '';
+                render();
+            }
+        }
+
+        async function toggleDateIdea(index) {
+            state.data.dateIdeas[index].done = !state.data.dateIdeas[index].done;
+            if (state.data.dateIdeas[index].done) {
+                state.data.dateIdeas[index].doneAt = new Date().toISOString();
+            }
+            await saveData();
+            render();
+        }
+
+        function randomDateIdea() {
+            const notDone = (state.data.dateIdeas || []).filter(d => !d.done);
+            if (notDone.length > 0) {
+                const random = notDone[Math.floor(Math.random() * notDone.length)];
+                alert(`🎲 Idée du jour :\n\n"${random.idea}"\n\n💡 Suggéré par ${random.author}`);
+            }
+        }
+
+        function handleGalleryPhoto(event) {
+            const file = event.target.files[0];
+            if (file && file.type.startsWith('image/')) {
+                // Vérifier la taille (max 1MB pour éviter de dépasser les limites JSONBin)
+                if (file.size > 1024 * 1024) {
+                    alert('⚠️ Photo trop grande ! Maximum 1 MB.\nEssaie de prendre une photo avec moins de résolution.');
+                    return;
+                }
+                
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    state.tempPhotoData = e.target.result;
+                    render(); // Afficher l'aperçu
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        async function addPhotoToGallery() {
+            if (state.tempPhotoData) {
+                const caption = document.getElementById('photoCaption')?.value.trim();
+                const photo = {
+                    id: Date.now(),
+                    url: state.tempPhotoData,
+                    caption: caption || '',
+                    author: state.currentMode === 'agnieszka' ? 'Chadoudou' : 'Chou',
+                    timestamp: new Date().toISOString()
+                };
+                
+                state.data.photos = state.data.photos || [];
+                state.data.photos.unshift(photo);
+                
+                // Nettoyer avant de sauvegarder
+                state.tempPhotoData = null;
+                if (document.getElementById('photoCaption')) {
+                    document.getElementById('photoCaption').value = '';
+                }
+                
+                // Sauvegarder
+                try {
+                    await saveData();
+                    render();
+                } catch (error) {
+                    alert('❌ Erreur lors de la sauvegarde de la photo. Elle est peut-être trop grande.');
+                    // Retirer la photo en cas d'erreur
+                    state.data.photos.shift();
+                    render();
+                }
+            }
+        }
+
+        function viewPhoto(index) {
+            const photo = state.data.photos[index];
+            const win = window.open('', '_blank');
+            win.document.write(`
+                <html>
+                <head><title>${photo.caption || 'Photo'}</title></head>
+                <body style="margin:0; display:flex; justify-content:center; align-items:center; min-height:100vh; background:#000;">
+                    <div style="max-width:90vw; max-height:90vh;">
+                        <img src="${photo.url}" style="max-width:100%; max-height:90vh; object-fit:contain;">
+                        ${photo.caption ? `<p style="color:white; text-align:center; margin-top:20px;">${photo.caption}</p>` : ''}
+                        <p style="color:#999; text-align:center; font-size:12px;">Par ${photo.author} • ${formatTime(photo.timestamp)}</p>
+                    </div>
+                </body>
+                </html>
+            `);
+        }
+
+        async function addChallenge() {
+            const textarea = document.getElementById('challengeText');
+            const challenge = textarea?.value.trim();
+            
+            if (challenge) {
+                const entry = {
+                    id: Date.now(),
+                    author: state.currentMode === 'agnieszka' ? 'Chadoudou' : 'Chou',
+                    challenge: challenge,
+                    completed: false,
+                    timestamp: new Date().toISOString()
+                };
+                state.data.challenges = state.data.challenges || [];
+                state.data.challenges.unshift(entry);
+                await saveData();
+                textarea.value = '';
+                render();
+            }
+        }
+
+        async function toggleChallenge(index) {
+            state.data.challenges[index].completed = !state.data.challenges[index].completed;
+            if (state.data.challenges[index].completed) {
+                state.data.challenges[index].completedAt = new Date().toISOString();
+                createEmojiBurst('🎉', window.innerWidth / 2, window.innerHeight / 2);
+            }
+            await saveData();
+            render();
+        }
+
+        async function deleteCategory(category, confirmMessage) {
+            if (confirm(confirmMessage)) {
+                switch(category) {
+                    case 'activations':
+                        state.data.activations = [];
+                        break;
+                    case 'whylove':
+                        state.data.whyLove = [];
+                        break;
+                    case 'dates':
+                        state.data.dateIdeas = [];
+                        break;
+                    case 'challenges':
+                        state.data.challenges = [];
+                        break;
+                    case 'journal':
+                        state.data.journal = [];
+                        break;
+                    case 'capsules':
+                        state.data.capsules = [];
+                        break;
+                    case 'stats':
+                        state.data.stats = { totalActivations: 0, totalResponses: 0 };
+                        break;
+                }
+                await saveData();
+                alert('✅ Données supprimées !');
+                render();
+            }
+        }
+
+        async function testNotification() {
+            // Vérifier si les notifications sont supportées
+            if (!('Notification' in window)) {
+                alert('❌ Ton navigateur ne supporte pas les notifications');
+                return;
+            }
+
+            // Demander la permission si pas encore fait
+            if (Notification.permission === 'default') {
+                const permission = await Notification.requestPermission();
+                render(); // Update le statut
+                if (permission !== 'granted') {
+                    alert('❌ Permission refusée. Va dans les paramètres de ton navigateur pour autoriser les notifications.');
+                    return;
+                }
+            }
+
+            // Si refusé
+            if (Notification.permission === 'denied') {
+                alert('❌ Les notifications sont bloquées.\n\nPour les activer :\n1. Va dans les paramètres de Chrome\n2. Cherche "Notifications"\n3. Autorise ce site');
+                return;
+            }
+
+            // Tester la notification
+            if (Notification.permission === 'granted') {
+                // Vibration
+                if ('vibrate' in navigator) {
+                    navigator.vibrate([200, 100, 200]);
+                }
+
+                // Notification
+                new Notification('💕 Test réussi !', {
+                    body: 'Les notifications fonctionnent parfaitement ! 🎉',
+                    icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">💕</text></svg>',
+                    vibrate: [200, 100, 200]
+                });
+
+                alert('✅ Notification envoyée !\n\nSi tu ne l\'as pas vue, vérifie :\n- Que les notifications ne sont pas en mode silencieux\n- Que l\'app est bien ajoutée à l\'écran d\'accueil');
             }
         }
 
         async function resetData() {
-            if (confirm('⚠️ Es-tu sûr de vouloir supprimer TOUTES les données ?\n\nCela effacera :\n- Toutes les activations\n- Tout le journal\n- Toutes les capsules\n- Toutes les statistiques\n\nCette action est IRRÉVERSIBLE !')) {
+            if (confirm('⚠️ Es-tu sûr de vouloir supprimer TOUTES les données ?\n\nCela effacera :\n- Toutes les activations\n- Tout le journal\n- Toutes les capsules\n- Toutes les raisons\n- Toutes les idées de dates\n- Tous les défis\n- Toutes les statistiques\n\nCette action est IRRÉVERSIBLE !')) {
                 // Réinitialiser les données
                 state.data = {
                     activations: [],
                     journal: [],
                     capsules: [],
+                    whyLove: [],
+                    dateIdeas: [],
+                    challenges: [],
                     stats: { totalActivations: 0, totalResponses: 0 }
                 };
                 
@@ -767,6 +1036,15 @@
                     <button class="nav-tab ${state.currentTab === 'voucher' ? 'active' : ''}" id="tab-voucher">
                         💝 Bon
                     </button>
+                    <button class="nav-tab ${state.currentTab === 'whylove' ? 'active' : ''}" id="tab-whylove">
+                        💕 Pourquoi
+                    </button>
+                    <button class="nav-tab ${state.currentTab === 'dates' ? 'active' : ''}" id="tab-dates">
+                        🎲 Dates
+                    </button>
+                    <button class="nav-tab ${state.currentTab === 'challenges' ? 'active' : ''}" id="tab-challenges">
+                        🎯 Défis
+                    </button>
                     <button class="nav-tab ${state.currentTab === 'journal' ? 'active' : ''}" id="tab-journal">
                         📔 Journal
                     </button>
@@ -776,17 +1054,28 @@
                     <button class="nav-tab ${state.currentTab === 'memories' ? 'active' : ''}" id="tab-memories">
                         💖 Nous
                     </button>
+                    <button class="nav-tab ${state.currentTab === 'settings' ? 'active' : ''}" id="tab-settings">
+                        ⚙️ Paramètres
+                    </button>
                 </div>
             `;
 
             if (state.currentTab === 'voucher') {
                 html += renderVoucherTab();
+            } else if (state.currentTab === 'whylove') {
+                html += renderWhyLoveTab();
+            } else if (state.currentTab === 'dates') {
+                html += renderDatesTab();
+            } else if (state.currentTab === 'challenges') {
+                html += renderChallengesTab();
             } else if (state.currentTab === 'journal') {
                 html += renderJournalTab();
             } else if (state.currentTab === 'capsules') {
                 html += renderCapsulesTab();
             } else if (state.currentTab === 'memories') {
                 html += renderMemoriesTab();
+            } else if (state.currentTab === 'settings') {
+                html += renderSettingsTab();
             }
 
             content.innerHTML = html;
@@ -860,17 +1149,10 @@
                     });
                 } else {
                     html += `
-                        <div style="text-align: center; padding: 40px 20px; background: rgba(255, 255, 255, 0.5); border-radius: 20px; margin-bottom: 20px;">
+                        <div style="text-align: center; padding: 40px 20px; background: rgba(255, 255, 255, 0.5); border-radius: 20px;">
                             <div style="font-size: 48px; margin-bottom: 15px;">💤</div>
                             <div style="color: #e685b5; font-size: 16px;">Aucune demande en attente</div>
                         </div>
-                        
-                        <button class="big-btn" id="btn-reset" style="background: linear-gradient(135deg, #dc3545 0%, #ff6b6b 100%); margin-top: 20px;">
-                            🗑️ Réinitialiser toutes les données
-                        </button>
-                        <p style="text-align: center; color: #999; font-size: 12px; margin-top: 10px;">
-                            ⚠️ Attention : cette action supprime tout l'historique
-                        </p>
                     `;
                 }
 
@@ -913,6 +1195,225 @@
             });
             
             html += '</div>';
+            return html;
+        }
+
+        function renderWhyLoveTab() {
+            let html = `
+                <p class="subtitle">💕 Pourquoi on s'aime</p>
+                
+                <div class="form-group">
+                    <textarea id="whyLoveText" class="journal-textarea" style="min-height: 80px;" placeholder="Une raison pour laquelle tu l'aimes..."></textarea>
+                    <button class="big-btn" id="btn-whylove" style="margin-top: 10px;">
+                        💝 Ajouter une raison
+                    </button>
+                </div>
+
+                <div style="background: linear-gradient(135deg, #ffcce0 0%, #ffd5e5 100%); border-radius: 20px; padding: 20px; margin: 20px 0; text-align: center;">
+                    <div style="font-size: 18px; font-weight: bold; color: #d63384; margin-bottom: 10px;">💖 Raison du jour</div>
+                    <div style="font-size: 16px; color: #666; font-style: italic;">
+                        ${(state.data.whyLove || []).length > 0 ? 
+                            '"' + state.data.whyLove[Math.floor(Math.random() * state.data.whyLove.length)].reason + '"' : 
+                            'Ajoutez des raisons pour voir une raison aléatoire chaque jour ! 💕'}
+                    </div>
+                </div>
+            `;
+
+            if ((state.data.whyLove || []).length > 0) {
+                html += `<div style="margin-top: 20px;"><div style="color: #d63384; font-size: 16px; font-weight: bold; margin-bottom: 12px;">📝 Toutes nos raisons (${state.data.whyLove.length})</div>`;
+                state.data.whyLove.forEach((item, index) => {
+                    html += `
+                        <div class="journal-entry">
+                            <div class="journal-header">
+                                <span class="journal-author">${item.author}</span>
+                                <button onclick="deleteWhyLove(${index})" style="background: none; border: none; color: #dc3545; cursor: pointer; font-size: 18px;">🗑️</button>
+                            </div>
+                            <div class="journal-content">${item.reason}</div>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+            }
+
+            return html;
+        }
+
+        function renderDatesTab() {
+            const notDone = (state.data.dateIdeas || []).filter(d => !d.done);
+            const done = (state.data.dateIdeas || []).filter(d => d.done);
+
+            let html = `
+                <p class="subtitle">🎲 Idées de dates</p>
+                
+                <div class="form-group">
+                    <textarea id="dateIdeaText" class="journal-textarea" style="min-height: 80px;" placeholder="Une idée de sortie, activité, restaurant..."></textarea>
+                    <button class="big-btn" id="btn-dateidea" style="margin-top: 10px;">
+                        ✨ Ajouter une idée
+                    </button>
+                </div>
+
+                ${notDone.length > 0 ? `
+                    <button class="big-btn" id="btn-randomdate" style="background: linear-gradient(135deg, #9c27b0 0%, #ba68c8 100%); margin-bottom: 20px;">
+                        🎲 Idée aléatoire !
+                    </button>
+                ` : ''}
+            `;
+
+            if (notDone.length > 0) {
+                html += `<div style="margin-top: 20px;"><div style="color: #d63384; font-size: 16px; font-weight: bold; margin-bottom: 12px;">💡 À faire (${notDone.length})</div>`;
+                notDone.forEach((idea, index) => {
+                    const realIndex = state.data.dateIdeas.indexOf(idea);
+                    html += `
+                        <div class="journal-entry" style="cursor: pointer;" onclick="toggleDateIdea(${realIndex})">
+                            <div class="journal-header">
+                                <span class="journal-author">${idea.author}</span>
+                                <span style="color: #999; font-size: 12px;">Tap pour marquer fait ✓</span>
+                            </div>
+                            <div class="journal-content">${idea.idea}</div>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+            }
+
+            if (done.length > 0) {
+                html += `<div style="margin-top: 20px;"><div style="color: #28a745; font-size: 16px; font-weight: bold; margin-bottom: 12px;">✅ Déjà faites (${done.length})</div>`;
+                done.forEach((idea, index) => {
+                    const realIndex = state.data.dateIdeas.indexOf(idea);
+                    html += `
+                        <div class="journal-entry" style="opacity: 0.7; text-decoration: line-through; cursor: pointer;" onclick="toggleDateIdea(${realIndex})">
+                            <div class="journal-content">${idea.idea}</div>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+            }
+
+            return html;
+        }
+
+        function renderSettingsTab() {
+            let html = `
+                <p class="subtitle">⚙️ Paramètres & Gestion</p>
+                
+                <div style="background: #e3f2fd; border-radius: 15px; padding: 20px; margin-bottom: 20px;">
+                    <div style="color: #1976d2; font-size: 16px; font-weight: bold; margin-bottom: 15px;">
+                        🔔 Test des notifications
+                    </div>
+                    <p style="color: #666; font-size: 13px; margin-bottom: 15px;">
+                        Teste si les notifications fonctionnent sur ton téléphone
+                    </p>
+                    <button class="big-btn" id="btn-test-notif" style="background: linear-gradient(135deg, #1976d2 0%, #42a5f5 100%);">
+                        🔔 Tester les notifications
+                    </button>
+                    <p style="color: #999; font-size: 12px; margin-top: 10px; text-align: center;">
+                        Permission actuelle : <strong id="notif-permission">${Notification.permission === 'granted' ? '✅ Autorisée' : Notification.permission === 'denied' ? '❌ Refusée' : '⚠️ Non demandée'}</strong>
+                    </p>
+                </div>
+                
+                <div style="background: #fff5f7; border-radius: 15px; padding: 20px; margin-bottom: 20px;">
+                    <div style="color: #d63384; font-size: 16px; font-weight: bold; margin-bottom: 15px;">
+                        🗑️ Supprimer des données
+                    </div>
+                    <p style="color: #999; font-size: 13px; margin-bottom: 15px;">
+                        Choisissez ce que vous voulez effacer. Cette action est irréversible !
+                    </p>
+                    
+                    <button class="response-btn secondary" id="btn-delete-activations" style="width: 100%; margin: 5px 0;">
+                        🗑️ Supprimer toutes les activations (${(state.data.activations || []).length})
+                    </button>
+                    
+                    <button class="response-btn secondary" id="btn-delete-whylove" style="width: 100%; margin: 5px 0;">
+                        🗑️ Supprimer "Pourquoi je t'aime" (${(state.data.whyLove || []).length})
+                    </button>
+                    
+                    <button class="response-btn secondary" id="btn-delete-dates" style="width: 100%; margin: 5px 0;">
+                        🗑️ Supprimer les idées de dates (${(state.data.dateIdeas || []).length})
+                    </button>
+                    
+                    <button class="response-btn secondary" id="btn-delete-challenges" style="width: 100%; margin: 5px 0;">
+                        🗑️ Supprimer les défis (${(state.data.challenges || []).length})
+                    </button>
+                    
+                    <button class="response-btn secondary" id="btn-delete-journal" style="width: 100%; margin: 5px 0;">
+                        🗑️ Supprimer le journal (${(state.data.journal || []).length})
+                    </button>
+                    
+                    <button class="response-btn secondary" id="btn-delete-capsules" style="width: 100%; margin: 5px 0;">
+                        🗑️ Supprimer les capsules (${(state.data.capsules || []).length})
+                    </button>
+                    
+                    <button class="response-btn secondary" id="btn-delete-stats" style="width: 100%; margin: 5px 0;">
+                        🗑️ Réinitialiser les statistiques
+                    </button>
+                </div>
+                
+                <div style="background: linear-gradient(135deg, #dc3545 0%, #ff6b6b 100%); border-radius: 15px; padding: 20px;">
+                    <div style="color: white; font-size: 16px; font-weight: bold; margin-bottom: 10px;">
+                        ⚠️ Zone dangereuse
+                    </div>
+                    <p style="color: rgba(255,255,255,0.9); font-size: 13px; margin-bottom: 15px;">
+                        Supprimer TOUTES les données d'un coup
+                    </p>
+                    <button class="big-btn" id="btn-reset-all" style="background: white; color: #dc3545;">
+                        💣 TOUT SUPPRIMER
+                    </button>
+                </div>
+            `;
+            
+            return html;
+        }
+
+        function renderChallengesTab() {
+            const active = (state.data.challenges || []).filter(c => !c.completed);
+            const completed = (state.data.challenges || []).filter(c => c.completed);
+
+            let html = `
+                <p class="subtitle">🎯 Défis couple</p>
+                
+                <div class="form-group">
+                    <textarea id="challengeText" class="journal-textarea" style="min-height: 80px;" placeholder="Un petit défi à réaliser ensemble..."></textarea>
+                    <button class="big-btn" id="btn-challenge" style="margin-top: 10px;">
+                        🎯 Créer un défi
+                    </button>
+                </div>
+            `;
+
+            if (active.length > 0) {
+                html += `<div style="margin-top: 20px;"><div style="color: #d63384; font-size: 16px; font-weight: bold; margin-bottom: 12px;">⚡ Défis actifs (${active.length})</div>`;
+                active.forEach((challenge, index) => {
+                    const realIndex = state.data.challenges.indexOf(challenge);
+                    html += `
+                        <div class="journal-entry" style="cursor: pointer;" onclick="toggleChallenge(${realIndex})">
+                            <div class="journal-header">
+                                <span class="journal-author">${challenge.author}</span>
+                                <span style="color: #999; font-size: 12px;">Tap quand c'est fait ✓</span>
+                            </div>
+                            <div class="journal-content">${challenge.challenge}</div>
+                            <div style="color: #999; font-size: 11px; margin-top: 5px;">
+                                Créé ${formatTime(challenge.timestamp)}
+                            </div>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+            }
+
+            if (completed.length > 0) {
+                html += `<div style="margin-top: 20px;"><div style="color: #28a745; font-size: 16px; font-weight: bold; margin-bottom: 12px;">✅ Défis réussis (${completed.length})</div>`;
+                completed.forEach((challenge, index) => {
+                    html += `
+                        <div class="journal-entry" style="opacity: 0.7;">
+                            <div class="journal-content" style="text-decoration: line-through;">${challenge.challenge}</div>
+                            <div style="color: #28a745; font-size: 11px; margin-top: 5px;">
+                                ✓ Complété ${formatTime(challenge.completedAt)}
+                            </div>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+            }
+
             return html;
         }
 
@@ -1039,6 +1540,11 @@
 
         // Event delegation global sur le content
         document.addEventListener('DOMContentLoaded', () => {
+            // Rendre les fonctions globales pour les onclick
+            window.deleteWhyLove = deleteWhyLove;
+            window.toggleDateIdea = toggleDateIdea;
+            window.toggleChallenge = toggleChallenge;
+            
             const content = document.getElementById('content');
             
             content.addEventListener('click', (e) => {
@@ -1047,6 +1553,18 @@
                 // Tabs
                 if (target.id === 'tab-voucher') {
                     state.currentTab = 'voucher';
+                    render();
+                } else if (target.id === 'tab-whylove') {
+                    state.currentTab = 'whylove';
+                    render();
+                } else if (target.id === 'tab-dates') {
+                    state.currentTab = 'dates';
+                    render();
+                } else if (target.id === 'tab-photos') {
+                    state.currentTab = 'photos';
+                    render();
+                } else if (target.id === 'tab-challenges') {
+                    state.currentTab = 'challenges';
                     render();
                 } else if (target.id === 'tab-journal') {
                     state.currentTab = 'journal';
@@ -1057,17 +1575,47 @@
                 } else if (target.id === 'tab-memories') {
                     state.currentTab = 'memories';
                     render();
+                } else if (target.id === 'tab-settings') {
+                    state.currentTab = 'settings';
+                    render();
                 }
                 
                 // Buttons
                 else if (target.id === 'btn-activate') {
                     activateVoucher();
+                } else if (target.id === 'btn-whylove') {
+                    addWhyLove();
+                } else if (target.id === 'btn-dateidea') {
+                    addDateIdea();
+                } else if (target.id === 'btn-randomdate') {
+                    randomDateIdea();
+                } else if (target.id === 'btn-challenge') {
+                    addChallenge();
                 } else if (target.id === 'btn-journal') {
                     addJournalEntry();
                 } else if (target.id === 'btn-capsule') {
                     addCapsule();
-                } else if (target.id === 'btn-reset') {
+                } else if (target.id === 'btn-reset-all') {
                     resetData();
+                } else if (target.id === 'btn-test-notif') {
+                    testNotification();
+                }
+                
+                // Delete category buttons
+                else if (target.id === 'btn-delete-activations') {
+                    deleteCategory('activations', '⚠️ Supprimer toutes les activations ?');
+                } else if (target.id === 'btn-delete-whylove') {
+                    deleteCategory('whylove', '⚠️ Supprimer toutes les raisons "Pourquoi je t\'aime" ?');
+                } else if (target.id === 'btn-delete-dates') {
+                    deleteCategory('dates', '⚠️ Supprimer toutes les idées de dates ?');
+                } else if (target.id === 'btn-delete-challenges') {
+                    deleteCategory('challenges', '⚠️ Supprimer tous les défis ?');
+                } else if (target.id === 'btn-delete-journal') {
+                    deleteCategory('journal', '⚠️ Supprimer tout le journal ?');
+                } else if (target.id === 'btn-delete-capsules') {
+                    deleteCategory('capsules', '⚠️ Supprimer toutes les capsules ?');
+                } else if (target.id === 'btn-delete-stats') {
+                    deleteCategory('stats', '⚠️ Réinitialiser les statistiques ?');
                 }
                 
                 // Response buttons
@@ -1110,8 +1658,32 @@
                 document.getElementById(savedMode === 'agnieszka' ? 'agnieszkaBtn' : 'stephanBtn').click();
             }
             
-            if ('Notification' in window && Notification.permission === 'default') {
-                Notification.requestPermission();
+            // FORCER la demande de notification au chargement
+            if ('Notification' in window) {
+                if (Notification.permission === 'default') {
+                    // Attendre 2 secondes puis demander
+                    setTimeout(async () => {
+                        try {
+                            const permission = await Notification.requestPermission();
+                            console.log('Notification permission:', permission);
+                            if (permission === 'granted') {
+                                new Notification('🎉 Notifications activées !', {
+                                    body: 'Tu recevras maintenant les notifications quand Chadoudou active son bon ! 💕',
+                                    icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">💕</text></svg>'
+                                });
+                            }
+                        } catch (error) {
+                            console.error('Erreur demande notification:', error);
+                        }
+                    }, 2000);
+                } else if (Notification.permission === 'denied') {
+                    // Si refusé, afficher un message au bout de 3 secondes
+                    setTimeout(() => {
+                        if (confirm('⚠️ Les notifications sont bloquées !\n\nPour les activer :\n1. Clique sur "Paramètres du site" dans le menu Chrome (⋮)\n2. Trouve "Notifications"\n3. Change "Bloqué" en "Autoriser"\n\nVeux-tu voir comment faire ?')) {
+                            alert('📱 Instructions :\n\n1. Clique sur les 3 points ⋮ en haut\n2. "Paramètres du site"\n3. "Notifications" → "Autoriser"\n4. Recharge la page');
+                        }
+                    }, 3000);
+                }
             }
 
             // Notification pour nouvelles activations
