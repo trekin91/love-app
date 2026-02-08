@@ -839,11 +839,15 @@
         }
 
         async function testNotification() {
+            alert('🔔 Fonction testNotification appelée !');
+            
             // Vérifier si les notifications sont supportées
             if (!('Notification' in window)) {
                 alert('❌ Ton navigateur ne supporte pas les notifications');
                 return;
             }
+
+            alert('Permission actuelle : ' + Notification.permission);
 
             // Demander la permission si pas encore fait
             if (Notification.permission === 'default') {
@@ -863,19 +867,25 @@
 
             // Tester la notification
             if (Notification.permission === 'granted') {
+                alert('✅ Permission OK ! Envoi de la notification...');
+                
                 // Vibration
                 if ('vibrate' in navigator) {
                     navigator.vibrate([200, 100, 200]);
                 }
 
                 // Notification
-                new Notification('💕 Test réussi !', {
-                    body: 'Les notifications fonctionnent parfaitement ! 🎉',
-                    icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75">💕</text></svg>',
-                    vibrate: [200, 100, 200]
-                });
-
-                alert('✅ Notification envoyée !\n\nSi tu ne l\'as pas vue, vérifie :\n- Que les notifications ne sont pas en mode silencieux\n- Que l\'app est bien ajoutée à l\'écran d\'accueil');
+                try {
+                    new Notification('💕 Test réussi !', {
+                        body: 'Les notifications fonctionnent ! 🎉',
+                        tag: 'test-notification',
+                        requireInteraction: false
+                    });
+                    
+                    alert('✅ Notification créée avec succès !\n\nVérifie ta barre de notifications (tire depuis le haut de l\'écran)');
+                } catch (error) {
+                    alert('❌ Erreur création notification: ' + error.message);
+                }
             }
         }
 
